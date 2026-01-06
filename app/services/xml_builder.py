@@ -20,19 +20,35 @@ class XMLBuilder:
     def __init__(self):
         self.master_tables: List[Dict] = []
         self.transaction_tables: List[Dict] = []
+        self._incremental = False
         self._load_export_config()
     
-    def _load_export_config(self) -> None:
+    def _load_export_config(self, incremental: bool = None) -> None:
         """Load export configuration from YAML file"""
-        config_path = Path("tally-export-config.yaml")
+        # Check config for sync mode if not specified
+        if incremental is None:
+            incremental = config.sync.mode == "incremental"
+        
+        self._incremental = incremental
+        
+        if incremental:
+            config_path = Path("tally-export-config-incremental.yaml")
+        else:
+            config_path = Path("tally-export-config.yaml")
+        
         if config_path.exists():
             with open(config_path, "r", encoding="utf-8") as f:
                 yaml_config = yaml.safe_load(f)
                 self.master_tables = yaml_config.get("master", [])
                 self.transaction_tables = yaml_config.get("transaction", [])
-                logger.info(f"Loaded {len(self.master_tables)} master tables, {len(self.transaction_tables)} transaction tables")
+                mode = "incremental" if incremental else "full"
+                logger.info(f"Loaded {len(self.master_tables)} master tables, {len(self.transaction_tables)} transaction tables ({mode} mode)")
         else:
-            logger.warning("tally-export-config.yaml not found")
+            logger.warning(f"{config_path} not found")
+    
+    def reload_config(self, incremental: bool = None) -> None:
+        """Reload configuration (useful when switching modes)"""
+        self._load_export_config(incremental)
     
     def get_all_tables(self) -> List[Dict]:
         """Get all table definitions"""

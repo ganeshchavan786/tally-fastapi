@@ -103,6 +103,177 @@ class SyncService:
         finally:
             await database_service.disconnect()
     
+    @timed
+    async def incremental_sync(self) -> Dict[str, Any]:
+        """Perform incremental data synchronization (only changed records)"""
+        if self.status == SyncStatus.RUNNING:
+            return {"error": "Sync already in progress"}
+        
+        self._reset_status()
+        self.status = SyncStatus.RUNNING
+        self.started_at = datetime.now()
+        
+        try:
+            # Reload config for incremental mode
+            xml_builder.reload_config(incremental=True)
+            
+            # Connect to database
+            await database_service.connect()
+            
+            # Create tables if not exist (with incremental schema)
+            logger.info("Creating database tables (incremental schema)...")
+            await database_service.create_tables(incremental=True)
+            
+            # Get last sync alterid from config table
+            last_alterid = await self._get_last_alterid()
+            logger.info(f"Last sync AlterID: {last_alterid}")
+            
+            # Sync master data with alterid filter
+            logger.info("Syncing master data (incremental)...")
+            await self._sync_master_data_incremental(last_alterid)
+            
+            if self._cancel_requested:
+                self.status = SyncStatus.CANCELLED
+                return self.get_status()
+            
+            # Sync transaction data with alterid filter
+            logger.info("Syncing transaction data (incremental)...")
+            await self._sync_transaction_data_incremental(last_alterid)
+            
+            if self._cancel_requested:
+                self.status = SyncStatus.CANCELLED
+                return self.get_status()
+            
+            # Update last alterid in config
+            await self._update_last_alterid()
+            
+            self.status = SyncStatus.COMPLETED
+            self.completed_at = datetime.now()
+            self.progress = 100
+            
+            logger.info(f"Incremental sync completed. Total rows: {self.rows_processed}")
+            return self.get_status()
+            
+        except Exception as e:
+            self.status = SyncStatus.FAILED
+            self.error_message = str(e)
+            logger.error(f"Incremental sync failed: {e}")
+            return self.get_status()
+        finally:
+            await database_service.disconnect()
+    
+    async def _get_last_alterid(self) -> int:
+        """Get last sync alterid from config table"""
+        try:
+            result = await database_service.fetch_one(
+                "SELECT value FROM config WHERE name = 'last_alterid'"
+            )
+            if result:
+                return int(result.get("value", 0))
+        except:
+            pass
+        return 0
+    
+    async def _update_last_alterid(self) -> None:
+        """Update last alterid in config table after sync"""
+        try:
+            # Get max alterid from all tables
+            max_alterid = 0
+            for table in ["mst_group", "mst_ledger", "mst_vouchertype", "trn_voucher"]:
+                try:
+                    result = await database_service.fetch_one(f"SELECT MAX(alterid) as max_id FROM {table}")
+                    if result and result.get("max_id"):
+                        max_alterid = max(max_alterid, int(result.get("max_id", 0)))
+                except:
+                    pass
+            
+            # Upsert config value
+            await database_service.execute(
+                "INSERT OR REPLACE INTO config (name, value) VALUES ('last_alterid', ?)",
+                (str(max_alterid),)
+            )
+            logger.info(f"Updated last_alterid to {max_alterid}")
+        except Exception as e:
+            logger.error(f"Failed to update last_alterid: {e}")
+    
+    async def _sync_master_data_incremental(self, last_alterid: int) -> None:
+        """Sync master data with alterid filter"""
+        master_tables = xml_builder.get_master_tables()
+        total_tables = len(master_tables) + len(xml_builder.get_transaction_tables())
+        
+        for i, table_config in enumerate(master_tables):
+            if self._cancel_requested:
+                return
+            
+            table_name = table_config.get("name", "")
+            self.current_table = table_name
+            self.progress = int((i / total_tables) * 100)
+            
+            try:
+                # Add alterid filter to table config
+                table_config_with_filter = table_config.copy()
+                if last_alterid > 0:
+                    table_config_with_filter["filter"] = f"$AlterID > {last_alterid}"
+                
+                rows = await self._extract_table_data(table_config_with_filter)
+                if rows:
+                    # For incremental, use upsert (INSERT OR REPLACE)
+                    count = await self._upsert_rows(table_name, rows)
+                    self.rows_processed += count
+                    logger.info(f"  {table_name}: upserted {count} rows")
+                else:
+                    logger.info(f"  {table_name}: no changes")
+            except Exception as e:
+                logger.error(f"  {table_name}: failed - {e}")
+    
+    async def _sync_transaction_data_incremental(self, last_alterid: int) -> None:
+        """Sync transaction data with alterid filter"""
+        master_tables = xml_builder.get_master_tables()
+        transaction_tables = xml_builder.get_transaction_tables()
+        total_tables = len(master_tables) + len(transaction_tables)
+        
+        for i, table_config in enumerate(transaction_tables):
+            if self._cancel_requested:
+                return
+            
+            table_name = table_config.get("name", "")
+            self.current_table = table_name
+            self.progress = int(((len(master_tables) + i) / total_tables) * 100)
+            
+            try:
+                table_config_with_filter = table_config.copy()
+                if last_alterid > 0:
+                    table_config_with_filter["filter"] = f"$AlterID > {last_alterid}"
+                
+                rows = await self._extract_table_data(table_config_with_filter)
+                if rows:
+                    count = await self._upsert_rows(table_name, rows)
+                    self.rows_processed += count
+                    logger.info(f"  {table_name}: upserted {count} rows")
+                else:
+                    logger.info(f"  {table_name}: no changes")
+            except Exception as e:
+                logger.error(f"  {table_name}: failed - {e}")
+    
+    async def _upsert_rows(self, table_name: str, rows: List[Dict]) -> int:
+        """Insert or replace rows (upsert for incremental sync)"""
+        if not rows:
+            return 0
+        
+        columns = list(rows[0].keys())
+        placeholders = ", ".join(["?" for _ in columns])
+        column_names = ", ".join(columns)
+        
+        query = f"INSERT OR REPLACE INTO {table_name} ({column_names}) VALUES ({placeholders})"
+        
+        count = 0
+        for row in rows:
+            values = tuple(row.get(col) for col in columns)
+            await database_service.execute(query, values)
+            count += 1
+        
+        return count
+    
     async def _sync_master_data(self) -> None:
         """Sync all master data tables"""
         master_tables = xml_builder.get_master_tables()

@@ -101,13 +101,18 @@ class DatabaseService:
         return None
     
     @timed
-    async def create_tables(self) -> None:
+    async def create_tables(self, incremental: bool = None) -> None:
         """Create all database tables from database-structure.sql"""
         if not self._connection:
             await self.connect()
         
+        # Check config for sync mode if not specified
+        if incremental is None:
+            from ..config import config
+            incremental = config.sync.mode == "incremental"
+        
         # Try to load from external SQL file first
-        schema_sql = self._load_schema_from_file()
+        schema_sql = self._load_schema_from_file(incremental=incremental)
         if not schema_sql:
             schema_sql = self._get_schema_sql()
         
@@ -126,17 +131,24 @@ class DatabaseService:
             logger.error(f"Failed to create tables: {e}")
             raise
     
-    def _load_schema_from_file(self) -> str:
+    def _load_schema_from_file(self, incremental: bool = False) -> str:
         """Load schema from database-structure.sql file"""
-        schema_path = Path("database-structure.sql")
+        if incremental:
+            schema_path = Path("database-structure-incremental.sql")
+        else:
+            schema_path = Path("database-structure.sql")
+        
         if schema_path.exists():
             with open(schema_path, "r", encoding="utf-8") as f:
+                logger.info(f"Loading schema from {schema_path}")
                 return f.read()
         return ""
     
     def _convert_sql_for_sqlite(self, sql: str) -> str:
         """Convert SQL types to SQLite compatible types"""
         import re
+        # Replace CREATE TABLE with CREATE TABLE IF NOT EXISTS
+        sql = re.sub(r'create\s+table\s+(?!if)', 'CREATE TABLE IF NOT EXISTS ', sql, flags=re.IGNORECASE)
         # Replace types - only when they appear as data types (after column name)
         # Pattern: column_name followed by space and type
         sql = re.sub(r'\bnvarchar\s*\(\d+\)', 'TEXT', sql, flags=re.IGNORECASE)

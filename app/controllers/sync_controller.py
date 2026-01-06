@@ -25,12 +25,12 @@ async def trigger_full_sync(background_tasks: BackgroundTasks):
 
 @router.post("/incremental")
 async def trigger_incremental_sync(background_tasks: BackgroundTasks):
-    """Trigger incremental data synchronization"""
+    """Trigger incremental data synchronization (only changed records)"""
     logger.info("Incremental sync requested")
-    # TODO: Implement incremental sync
+    background_tasks.add_task(sync_service.incremental_sync)
     return {
-        "status": "not_implemented",
-        "message": "Incremental sync not yet implemented"
+        "status": "started",
+        "message": "Incremental sync started in background"
     }
 
 
