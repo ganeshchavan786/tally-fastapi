@@ -1,0 +1,66 @@
+# Tally FastAPI Database Loader Configuration
+# Version: 1.0.0
+
+# Tally Connection Settings
+tally:
+  server: localhost
+  port: 9000
+  company: ""  # Empty = active company
+  from_date: "2025-04-01"
+  to_date: "2026-03-31"
+
+# Database Settings
+database:
+  path: "./tally.db"
+
+# Sync Settings
+sync:
+  mode: "full"  # full | incremental
+  batch_size: 1000
+
+# API Settings
+api:
+  host: "0.0.0.0"
+  port: 8000
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://127.0.0.1:3000"
+
+# Debug Mode Settings
+debug:
+  enabled: false
+  verbose_logging: false
+  log_sql_queries: false
+  log_timing: false
+  log_memory: false
+  log_http_details: false
+
+# Logging Settings
+logging:
+  level: "INFO"
+  file: "./logs/app.log"
+  max_size: 10
+  backup_count: 5
+  console: true
+  colorize: true
+
+# Error Recovery & Retry Settings
+retry:
+  enabled: true
+  max_attempts: 3
+  initial_delay: 5
+  strategy: "exponential"
+  backoff_multiplier: 2
+  max_delay: 60
+
+# Circuit Breaker Settings
+circuit_breaker:
+  enabled: true
+  failure_threshold: 5
+  recovery_timeout: 60
+
+# Health Check Settings
+health:
+  check_interval: 30
+  tally_timeout: 5
+  database_timeout: 2

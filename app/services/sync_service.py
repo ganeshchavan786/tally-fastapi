@@ -1,0 +1,472 @@
+"""
+Sync Service Module
+Orchestrates data synchronization between Tally and SQLite
+"""
+
+import asyncio
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from ..config import config
+from ..utils.logger import logger
+from ..utils.decorators import timed
+from ..utils.constants import SyncStatus, MASTER_TABLES, TRANSACTION_TABLES
+from ..utils.helpers import parse_tally_date, parse_tally_amount, parse_tally_boolean
+from .tally_service import tally_service
+from .database_service import database_service
+from .xml_builder import xml_builder
+
+
+class SyncService:
+    """Service for synchronizing data from Tally to SQLite"""
+    
+    def __init__(self):
+        self.status = SyncStatus.IDLE
+        self.progress = 0
+        self.current_table = ""
+        self.rows_processed = 0
+        self.started_at: Optional[datetime] = None
+        self.completed_at: Optional[datetime] = None
+        self.error_message: Optional[str] = None
+        self._cancel_requested = False
+    
+    def get_status(self) -> Dict[str, Any]:
+        """Get current sync status"""
+        return {
+            "status": self.status,
+            "progress": self.progress,
+            "current_table": self.current_table,
+            "rows_processed": self.rows_processed,
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+            "error_message": self.error_message
+        }
+    
+    def cancel(self) -> bool:
+        """Request sync cancellation"""
+        if self.status == SyncStatus.RUNNING:
+            self._cancel_requested = True
+            logger.info("Sync cancellation requested")
+            return True
+        return False
+    
+    @timed
+    async def full_sync(self) -> Dict[str, Any]:
+        """Perform full data synchronization"""
+        if self.status == SyncStatus.RUNNING:
+            return {"error": "Sync already in progress"}
+        
+        self._reset_status()
+        self.status = SyncStatus.RUNNING
+        self.started_at = datetime.now()
+        
+        try:
+            # Connect to database
+            await database_service.connect()
+            
+            # Create tables if not exist
+            logger.info("Creating database tables...")
+            await database_service.create_tables()
+            
+            # Truncate all tables for full sync
+            logger.info("Truncating existing data...")
+            await database_service.truncate_all_tables()
+            
+            # Sync master data
+            logger.info("Syncing master data...")
+            await self._sync_master_data()
+            
+            if self._cancel_requested:
+                self.status = SyncStatus.CANCELLED
+                return self.get_status()
+            
+            # Sync transaction data
+            logger.info("Syncing transaction data...")
+            await self._sync_transaction_data()
+            
+            if self._cancel_requested:
+                self.status = SyncStatus.CANCELLED
+                return self.get_status()
+            
+            self.status = SyncStatus.COMPLETED
+            self.completed_at = datetime.now()
+            self.progress = 100
+            
+            logger.info(f"Full sync completed. Total rows: {self.rows_processed}")
+            return self.get_status()
+            
+        except Exception as e:
+            self.status = SyncStatus.FAILED
+            self.error_message = str(e)
+            logger.error(f"Sync failed: {e}")
+            return self.get_status()
+        finally:
+            await database_service.disconnect()
+    
+    async def _sync_master_data(self) -> None:
+        """Sync all master data tables"""
+        master_tables = xml_builder.get_master_tables()
+        total_tables = len(master_tables) + len(xml_builder.get_transaction_tables())
+        
+        for i, table_config in enumerate(master_tables):
+            if self._cancel_requested:
+                return
+            
+            table_name = table_config.get("name", "")
+            self.current_table = table_name
+            self.progress = int((i / total_tables) * 100)
+            
+            try:
+                rows = await self._extract_table_data(table_config)
+                if rows:
+                    count = await database_service.bulk_insert(table_name, rows)
+                    self.rows_processed += count
+                    logger.info(f"  {table_name}: imported {count} rows")
+                else:
+                    logger.info(f"  {table_name}: imported 0 rows")
+            except Exception as e:
+                logger.error(f"  {table_name}: failed - {e}")
+    
+    async def _sync_transaction_data(self) -> None:
+        """Sync all transaction data tables"""
+        master_tables = xml_builder.get_master_tables()
+        transaction_tables = xml_builder.get_transaction_tables()
+        total_tables = len(master_tables) + len(transaction_tables)
+        
+        for i, table_config in enumerate(transaction_tables):
+            if self._cancel_requested:
+                return
+            
+            table_name = table_config.get("name", "")
+            self.current_table = table_name
+            self.progress = int(((len(master_tables) + i) / total_tables) * 100)
+            
+            try:
+                rows = await self._extract_table_data(table_config)
+                if rows:
+                    count = await database_service.bulk_insert(table_name, rows)
+                    self.rows_processed += count
+                    logger.info(f"  {table_name}: imported {count} rows")
+                else:
+                    logger.info(f"  {table_name}: imported 0 rows")
+            except Exception as e:
+                logger.error(f"  {table_name}: failed - {e}")
+    
+    async def _extract_table_data(self, table_config: Dict) -> List[Dict[str, Any]]:
+        """Extract data for a specific table from Tally"""
+        table_name = table_config.get("name", "")
+        fields = table_config.get("fields", [])
+        
+        if not fields:
+            return []
+        
+        try:
+            # Build XML request using xml_builder
+            xml_request = xml_builder.build_export_xml(table_config)
+            
+            # Send request to Tally
+            response = await tally_service.send_xml(xml_request)
+            
+            # Debug: log response length
+            logger.debug(f"{table_name}: Response length = {len(response)} chars")
+            
+            # Parse response - extract field names from config
+            field_names = [f.get("name", "") for f in fields]
+            rows = self._parse_xml_response(response, field_names, fields)
+            
+            logger.debug(f"{table_name}: Parsed {len(rows)} rows")
+            
+            return rows
+        except Exception as e:
+            logger.error(f"Failed to extract {table_name}: {e}")
+            return []
+    
+    def _parse_xml_response(self, xml_response: str, field_names: List[str], field_configs: List[Dict]) -> List[Dict[str, Any]]:
+        """Parse XML response from Tally into list of dictionaries"""
+        rows = []
+        
+        try:
+            # Remove BOM if present
+            if xml_response.startswith('\ufeff'):
+                xml_response = xml_response[1:]
+            
+            # Tally returns flat XML with repeating F01, F02, ... sequences
+            # Each F01 starts a new row
+            import re
+            
+            num_fields = len(field_names)
+            
+            # Find all F01 values and their positions
+            f01_pattern = re.compile(r'<F01>(.*?)</F01>', re.DOTALL)
+            f01_matches = list(f01_pattern.finditer(xml_response))
+            
+            if not f01_matches:
+                return rows
+            
+            # For each F01, extract all fields for that row
+            for match_idx, f01_match in enumerate(f01_matches):
+                # Determine the end position for this row
+                if match_idx + 1 < len(f01_matches):
+                    end_pos = f01_matches[match_idx + 1].start()
+                else:
+                    end_pos = len(xml_response)
+                
+                start_pos = f01_match.start()
+                row_xml = xml_response[start_pos:end_pos]
+                
+                # Extract all field values for this row
+                row = {}
+                for i, field_name in enumerate(field_names):
+                    tag_name = f"F{str(i + 1).zfill(2)}"
+                    pattern = f'<{tag_name}>(.*?)</{tag_name}>'
+                    match = re.search(pattern, row_xml, re.DOTALL)
+                    
+                    value = match.group(1) if match else ""
+                    
+                    # Handle null marker (ñ = chr(241))
+                    if value == "ñ" or value == chr(241) or value == "":
+                        value = None
+                    
+                    # Get field type for conversion
+                    field_type = field_configs[i].get("type", "text") if i < len(field_configs) else "text"
+                    
+                    if value is not None:
+                        if field_type in ("amount", "number", "rate", "quantity"):
+                            try:
+                                value = float(value) if value else 0.0
+                            except:
+                                value = 0.0
+                        elif field_type == "logical":
+                            value = 1 if str(value) in ("Yes", "1", "true", "True") else 0
+                        elif field_type == "date":
+                            value = parse_tally_date(str(value))
+                    else:
+                        if field_type in ("amount", "number", "rate", "quantity"):
+                            value = 0.0
+                        elif field_type == "logical":
+                            value = 0
+                        else:
+                            value = ""
+                    
+                    row[field_name] = value
+                rows.append(row)
+                    
+        except Exception as e:
+            logger.error(f"Error parsing XML response: {e}")
+        
+        return rows
+    
+    def _parse_tabular_response(self, response: str, field_names: List[str], field_configs: List[Dict]) -> List[Dict[str, Any]]:
+        """Parse tab-separated response as fallback"""
+        rows = []
+        try:
+            lines = response.strip().split('\r\n')
+            for line in lines:
+                if not line.strip():
+                    continue
+                values = line.split('\t')
+                if len(values) >= len(field_names):
+                    row = {}
+                    for i, field_name in enumerate(field_names):
+                        value = values[i] if i < len(values) else ""
+                        if value == "ñ" or value == chr(241):
+                            value = ""
+                        row[field_name] = value
+                    rows.append(row)
+        except Exception as e:
+            logger.error(f"Error parsing tabular response: {e}")
+        return rows
+    
+    def _get_tdl_for_table(self, table_name: str) -> Optional[str]:
+        """Get TDL XML definition for a table"""
+        # TDL definitions for each table
+        tdl_definitions = {
+            "mst_group": self._get_group_tdl(),
+            "mst_ledger": self._get_ledger_tdl(),
+            "mst_vouchertype": self._get_vouchertype_tdl(),
+            "mst_stock_item": self._get_stockitem_tdl(),
+            "trn_voucher": self._get_voucher_tdl(),
+            # Add more as needed
+        }
+        return tdl_definitions.get(table_name)
+    
+    def _get_field_names(self, table_name: str) -> List[str]:
+        """Get field names for a table"""
+        field_definitions = {
+            "mst_group": ["guid", "name", "parent", "primary_group", "is_revenue", "is_deemedpositive", "is_subledger", "sort_position"],
+            "mst_ledger": ["guid", "name", "parent", "alias", "opening_balance", "description", "mailing_name", "mailing_address", "mailing_state", "mailing_country", "mailing_pincode", "email", "phone", "mobile", "contact", "pan", "gstin", "gst_registration_type", "is_bill_wise", "is_cost_centre"],
+            "mst_vouchertype": ["guid", "name", "parent", "numbering_method", "is_active"],
+            "mst_stock_item": ["guid", "name", "parent", "category", "alias", "uom", "opening_quantity", "opening_rate", "opening_value", "gst_applicable", "hsn_code", "gst_rate"],
+            "trn_voucher": ["guid", "date", "voucher_type", "voucher_number", "reference_number", "reference_date", "narration", "party_name", "place_of_supply", "is_invoice", "is_accounting_voucher", "is_inventory_voucher", "is_order_voucher", "is_cancelled", "is_optional"],
+        }
+        return field_definitions.get(table_name, [])
+    
+    def _get_group_tdl(self) -> str:
+        """TDL for mst_group"""
+        return '''
+            <REPORT NAME="mst_group">
+                <FORMS>mst_group</FORMS>
+            </REPORT>
+            <FORM NAME="mst_group">
+                <PARTS>mst_group</PARTS>
+            </FORM>
+            <PART NAME="mst_group">
+                <LINES>mst_group</LINES>
+                <REPEAT>mst_group : Group</REPEAT>
+                <SCROLLED>Vertical</SCROLLED>
+            </PART>
+            <LINE NAME="mst_group">
+                <FIELDS>FldGuid,FldName,FldParent,FldPrimaryGroup,FldIsRevenue,FldIsDeemedPositive,FldIsSubledger,FldSortPosition</FIELDS>
+            </LINE>
+            <FIELD NAME="FldGuid"><SET>$Guid</SET></FIELD>
+            <FIELD NAME="FldName"><SET>$Name</SET></FIELD>
+            <FIELD NAME="FldParent"><SET>$Parent</SET></FIELD>
+            <FIELD NAME="FldPrimaryGroup"><SET>$_PrimaryGroup</SET></FIELD>
+            <FIELD NAME="FldIsRevenue"><SET>$IsRevenue</SET></FIELD>
+            <FIELD NAME="FldIsDeemedPositive"><SET>$IsDeemedPositive</SET></FIELD>
+            <FIELD NAME="FldIsSubledger"><SET>$IsSubledger</SET></FIELD>
+            <FIELD NAME="FldSortPosition"><SET>$SortPosition</SET></FIELD>
+        '''
+    
+    def _get_ledger_tdl(self) -> str:
+        """TDL for mst_ledger"""
+        return '''
+            <REPORT NAME="mst_ledger">
+                <FORMS>mst_ledger</FORMS>
+            </REPORT>
+            <FORM NAME="mst_ledger">
+                <PARTS>mst_ledger</PARTS>
+            </FORM>
+            <PART NAME="mst_ledger">
+                <LINES>mst_ledger</LINES>
+                <REPEAT>mst_ledger : Ledger</REPEAT>
+                <SCROLLED>Vertical</SCROLLED>
+            </PART>
+            <LINE NAME="mst_ledger">
+                <FIELDS>FldGuid,FldName,FldParent,FldAlias,FldOpeningBalance,FldDescription,FldMailingName,FldMailingAddress,FldMailingState,FldMailingCountry,FldMailingPincode,FldEmail,FldPhone,FldMobile,FldContact,FldPan,FldGstin,FldGstRegType,FldIsBillWise,FldIsCostCentre</FIELDS>
+            </LINE>
+            <FIELD NAME="FldGuid"><SET>$Guid</SET></FIELD>
+            <FIELD NAME="FldName"><SET>$Name</SET></FIELD>
+            <FIELD NAME="FldParent"><SET>$Parent</SET></FIELD>
+            <FIELD NAME="FldAlias"><SET>$Alias</SET></FIELD>
+            <FIELD NAME="FldOpeningBalance"><SET>$OpeningBalance</SET></FIELD>
+            <FIELD NAME="FldDescription"><SET>$Description</SET></FIELD>
+            <FIELD NAME="FldMailingName"><SET>$MailingName</SET></FIELD>
+            <FIELD NAME="FldMailingAddress"><SET>$Address</SET></FIELD>
+            <FIELD NAME="FldMailingState"><SET>$LedStateName</SET></FIELD>
+            <FIELD NAME="FldMailingCountry"><SET>$CountryName</SET></FIELD>
+            <FIELD NAME="FldMailingPincode"><SET>$Pincode</SET></FIELD>
+            <FIELD NAME="FldEmail"><SET>$Email</SET></FIELD>
+            <FIELD NAME="FldPhone"><SET>$LedgerPhone</SET></FIELD>
+            <FIELD NAME="FldMobile"><SET>$LedgerMobile</SET></FIELD>
+            <FIELD NAME="FldContact"><SET>$LedgerContact</SET></FIELD>
+            <FIELD NAME="FldPan"><SET>$IncomeTaxNumber</SET></FIELD>
+            <FIELD NAME="FldGstin"><SET>$PartyGSTIN</SET></FIELD>
+            <FIELD NAME="FldGstRegType"><SET>$GSTRegistrationType</SET></FIELD>
+            <FIELD NAME="FldIsBillWise"><SET>$IsBillWiseOn</SET></FIELD>
+            <FIELD NAME="FldIsCostCentre"><SET>$IsCostCentresOn</SET></FIELD>
+        '''
+    
+    def _get_vouchertype_tdl(self) -> str:
+        """TDL for mst_vouchertype"""
+        return '''
+            <REPORT NAME="mst_vouchertype">
+                <FORMS>mst_vouchertype</FORMS>
+            </REPORT>
+            <FORM NAME="mst_vouchertype">
+                <PARTS>mst_vouchertype</PARTS>
+            </FORM>
+            <PART NAME="mst_vouchertype">
+                <LINES>mst_vouchertype</LINES>
+                <REPEAT>mst_vouchertype : VoucherType</REPEAT>
+                <SCROLLED>Vertical</SCROLLED>
+            </PART>
+            <LINE NAME="mst_vouchertype">
+                <FIELDS>FldGuid,FldName,FldParent,FldNumberingMethod,FldIsActive</FIELDS>
+            </LINE>
+            <FIELD NAME="FldGuid"><SET>$Guid</SET></FIELD>
+            <FIELD NAME="FldName"><SET>$Name</SET></FIELD>
+            <FIELD NAME="FldParent"><SET>$Parent</SET></FIELD>
+            <FIELD NAME="FldNumberingMethod"><SET>$NumberingMethod</SET></FIELD>
+            <FIELD NAME="FldIsActive"><SET>$IsActive</SET></FIELD>
+        '''
+    
+    def _get_stockitem_tdl(self) -> str:
+        """TDL for mst_stock_item"""
+        return '''
+            <REPORT NAME="mst_stock_item">
+                <FORMS>mst_stock_item</FORMS>
+            </REPORT>
+            <FORM NAME="mst_stock_item">
+                <PARTS>mst_stock_item</PARTS>
+            </FORM>
+            <PART NAME="mst_stock_item">
+                <LINES>mst_stock_item</LINES>
+                <REPEAT>mst_stock_item : StockItem</REPEAT>
+                <SCROLLED>Vertical</SCROLLED>
+            </PART>
+            <LINE NAME="mst_stock_item">
+                <FIELDS>FldGuid,FldName,FldParent,FldCategory,FldAlias,FldUom,FldOpeningQty,FldOpeningRate,FldOpeningValue,FldGstApplicable,FldHsnCode,FldGstRate</FIELDS>
+            </LINE>
+            <FIELD NAME="FldGuid"><SET>$Guid</SET></FIELD>
+            <FIELD NAME="FldName"><SET>$Name</SET></FIELD>
+            <FIELD NAME="FldParent"><SET>$Parent</SET></FIELD>
+            <FIELD NAME="FldCategory"><SET>$Category</SET></FIELD>
+            <FIELD NAME="FldAlias"><SET>$Alias</SET></FIELD>
+            <FIELD NAME="FldUom"><SET>$BaseUnits</SET></FIELD>
+            <FIELD NAME="FldOpeningQty"><SET>$OpeningBalance</SET></FIELD>
+            <FIELD NAME="FldOpeningRate"><SET>$OpeningRate</SET></FIELD>
+            <FIELD NAME="FldOpeningValue"><SET>$OpeningValue</SET></FIELD>
+            <FIELD NAME="FldGstApplicable"><SET>$GSTApplicable</SET></FIELD>
+            <FIELD NAME="FldHsnCode"><SET>$HSNCode</SET></FIELD>
+            <FIELD NAME="FldGstRate"><SET>$GSTRate</SET></FIELD>
+        '''
+    
+    def _get_voucher_tdl(self) -> str:
+        """TDL for trn_voucher"""
+        return '''
+            <REPORT NAME="trn_voucher">
+                <FORMS>trn_voucher</FORMS>
+            </REPORT>
+            <FORM NAME="trn_voucher">
+                <PARTS>trn_voucher</PARTS>
+            </FORM>
+            <PART NAME="trn_voucher">
+                <LINES>trn_voucher</LINES>
+                <REPEAT>trn_voucher : Voucher</REPEAT>
+                <SCROLLED>Vertical</SCROLLED>
+            </PART>
+            <LINE NAME="trn_voucher">
+                <FIELDS>FldGuid,FldDate,FldVoucherType,FldVoucherNumber,FldRefNumber,FldRefDate,FldNarration,FldPartyName,FldPlaceOfSupply,FldIsInvoice,FldIsAccVoucher,FldIsInvVoucher,FldIsOrderVoucher,FldIsCancelled,FldIsOptional</FIELDS>
+            </LINE>
+            <FIELD NAME="FldGuid"><SET>$Guid</SET></FIELD>
+            <FIELD NAME="FldDate"><SET>$Date</SET></FIELD>
+            <FIELD NAME="FldVoucherType"><SET>$VoucherTypeName</SET></FIELD>
+            <FIELD NAME="FldVoucherNumber"><SET>$VoucherNumber</SET></FIELD>
+            <FIELD NAME="FldRefNumber"><SET>$Reference</SET></FIELD>
+            <FIELD NAME="FldRefDate"><SET>$ReferenceDate</SET></FIELD>
+            <FIELD NAME="FldNarration"><SET>$Narration</SET></FIELD>
+            <FIELD NAME="FldPartyName"><SET>$PartyLedgerName</SET></FIELD>
+            <FIELD NAME="FldPlaceOfSupply"><SET>$PlaceOfSupply</SET></FIELD>
+            <FIELD NAME="FldIsInvoice"><SET>$IsInvoice</SET></FIELD>
+            <FIELD NAME="FldIsAccVoucher"><SET>$IsAccountingVoucher</SET></FIELD>
+            <FIELD NAME="FldIsInvVoucher"><SET>$IsInventoryVoucher</SET></FIELD>
+            <FIELD NAME="FldIsOrderVoucher"><SET>$IsOrderVoucher</SET></FIELD>
+            <FIELD NAME="FldIsCancelled"><SET>$IsCancelled</SET></FIELD>
+            <FIELD NAME="FldIsOptional"><SET>$IsOptional</SET></FIELD>
+        '''
+    
+    def _reset_status(self) -> None:
+        """Reset sync status"""
+        self.status = SyncStatus.IDLE
+        self.progress = 0
+        self.current_table = ""
+        self.rows_processed = 0
+        self.started_at = None
+        self.completed_at = None
+        self.error_message = None
+        self._cancel_requested = False
+
+
+# Global service instance
+sync_service = SyncService()

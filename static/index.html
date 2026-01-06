@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tally FastAPI Database Loader</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔄 Tally FastAPI Database Loader</h1>
+            <p>Sync Tally ERP data to SQLite database</p>
+        </div>
+
+        <!-- Health Status -->
+        <div class="card">
+            <h2 class="card-title">System Health</h2>
+            <div id="health-status">Loading...</div>
+        </div>
+
+        <!-- Sync Control -->
+        <div class="card">
+            <h2 class="card-title">Sync Control</h2>
+            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button class="btn btn-primary" onclick="startSync()">▶️ Start Full Sync</button>
+                <button class="btn btn-danger" onclick="cancelSync()">⏹️ Cancel</button>
+            </div>
+            <div id="sync-status">
+                <p>Status: <span id="sync-state">Idle</span></p>
+                <div class="progress" style="margin-top: 10px;">
+                    <div class="progress-bar" id="sync-progress" style="width: 0%"></div>
+                </div>
+                <p style="margin-top: 10px; color: var(--text-muted);">
+                    <span id="sync-table">-</span> | <span id="sync-rows">0</span> rows
+                </p>
+            </div>
+        </div>
+
+        <!-- Table Counts -->
+        <div class="card">
+            <h2 class="card-title">Database Tables</h2>
+            <div id="table-counts">Loading...</div>
+        </div>
+
+        <!-- Recent Logs -->
+        <div class="card">
+            <h2 class="card-title">Recent Logs</h2>
+            <div class="log-viewer" id="log-viewer">
+                Loading logs...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        async function fetchHealth() {
+            try {
+                const res = await fetch(`${API_BASE}/api/health`);
+                const data = await res.json();
+                const el = document.getElementById('health-status');
+                
+                const tallyStatus = data.components?.tally?.status || 'unknown';
+                const dbStatus = data.components?.database?.status || 'unknown';
+                
+                el.innerHTML = `
+                    <p>Tally: <span class="status status-${tallyStatus}">${tallyStatus}</span></p>
+                    <p style="margin-top: 8px;">Database: <span class="status status-${dbStatus}">${dbStatus}</span></p>
+                `;
+            } catch (e) {
+                document.getElementById('health-status').innerHTML = '<p class="status status-unhealthy">Error loading health</p>';
+            }
+        }
+
+        async function fetchSyncStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sync/status`);
+                const data = await res.json();
+                
+                document.getElementById('sync-state').textContent = data.status || 'idle';
+                document.getElementById('sync-progress').style.width = `${data.progress || 0}%`;
+                document.getElementById('sync-table').textContent = data.current_table || '-';
+                document.getElementById('sync-rows').textContent = data.rows_processed || 0;
+            } catch (e) {
+                console.error('Error fetching sync status:', e);
+            }
+        }
+
+        async function startSync() {
+            try {
+                await fetch(`${API_BASE}/api/sync/full`, { method: 'POST' });
+                alert('Sync started!');
+                fetchSyncStatus();
+            } catch (e) {
+                alert('Failed to start sync');
+            }
+        }
+
+        async function cancelSync() {
+            try {
+                await fetch(`${API_BASE}/api/sync/cancel`, { method: 'POST' });
+                alert('Sync cancelled');
+                fetchSyncStatus();
+            } catch (e) {
+                alert('Failed to cancel sync');
+            }
+        }
+
+        async function fetchTableCounts() {
+            try {
+                const res = await fetch(`${API_BASE}/api/data/counts`);
+                const data = await res.json();
+                const el = document.getElementById('table-counts');
+                
+                let html = '<table class="table"><tr><th>Table</th><th>Rows</th></tr>';
+                for (const [table, count] of Object.entries(data)) {
+                    html += `<tr><td>${table}</td><td>${count}</td></tr>`;
+                }
+                html += '</table>';
+                el.innerHTML = html;
+            } catch (e) {
+                document.getElementById('table-counts').innerHTML = '<p>Error loading counts</p>';
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch(`${API_BASE}/api/logs?limit=50`);
+                const data = await res.json();
+                const el = document.getElementById('log-viewer');
+                
+                if (data.logs && data.logs.length > 0) {
+                    el.innerHTML = data.logs.map(log => {
+                        const levelClass = `log-${log.level?.toLowerCase() || 'info'}`;
+                        return `<div class="log-entry ${levelClass}">${log.timestamp} | ${log.level} | ${log.message}</div>`;
+                    }).join('');
+                } else {
+                    el.innerHTML = '<p>No logs available</p>';
+                }
+            } catch (e) {
+                document.getElementById('log-viewer').innerHTML = '<p>Error loading logs</p>';
+            }
+        }
+
+        // Initial load
+        fetchHealth();
+        fetchSyncStatus();
+        fetchTableCounts();
+        fetchLogs();
+
+        // Auto-refresh
+        setInterval(fetchSyncStatus, 2000);
+        setInterval(fetchHealth, 10000);
+        setInterval(fetchLogs, 5000);
+    </script>
+</body>
+</html>
