@@ -332,3 +332,20 @@ async def get_date_range():
         "from_date": config.tally.from_date,
         "to_date": config.tally.to_date
     }
+
+
+@app.get("/api/synced-companies")
+async def get_synced_companies():
+    """Get list of companies that have been synced (from config table)"""
+    from .services.database_service import database_service
+    try:
+        await database_service.connect()
+        # Get unique company names from sync_history
+        result = await database_service.fetch_all(
+            "SELECT DISTINCT company_name FROM sync_history WHERE status = 'completed' ORDER BY company_name"
+        )
+        companies = [row['company_name'] for row in result if row.get('company_name')]
+        await database_service.disconnect()
+        return {"synced_companies": companies}
+    except Exception as e:
+        return {"synced_companies": [], "error": str(e)}

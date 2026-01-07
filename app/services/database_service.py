@@ -590,6 +590,21 @@ CREATE INDEX IF NOT EXISTS idx_mst_stock_item_parent ON mst_stock_item(parent);
 '''
 
 
+    async def add_company_name_to_sync_history(self) -> None:
+        """Add company_name column to sync_history table if not exists"""
+        conn = await self._get_connection()
+        try:
+            cursor = await conn.execute("PRAGMA table_info(sync_history)")
+            columns = await cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            
+            if "company_name" not in column_names:
+                await conn.execute("ALTER TABLE sync_history ADD COLUMN company_name VARCHAR(256) DEFAULT ''")
+                await conn.commit()
+                logger.info("Added company_name column to sync_history")
+        except Exception as e:
+            logger.warning(f"Could not add company_name to sync_history: {e}")
+
     async def add_company_column_to_tables(self) -> Dict[str, Any]:
         """Add _company column to all tables for multi-company support"""
         conn = await self._get_connection()

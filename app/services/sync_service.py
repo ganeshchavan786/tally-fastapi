@@ -700,10 +700,10 @@ class SyncService:
         """Save sync history record and return ID"""
         try:
             query = """
-                INSERT INTO sync_history (sync_type, status, started_at, rows_processed)
-                VALUES (?, ?, ?, 0)
+                INSERT INTO sync_history (sync_type, status, started_at, rows_processed, company_name)
+                VALUES (?, ?, ?, 0, ?)
             """
-            await database_service.execute(query, (sync_type, status, self.started_at.isoformat()))
+            await database_service.execute(query, (sync_type, status, self.started_at.isoformat(), self.current_company))
             
             # Get last inserted ID
             result = await database_service.fetch_one("SELECT last_insert_rowid() as id")
