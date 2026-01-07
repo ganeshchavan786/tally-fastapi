@@ -4,155 +4,751 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tally FastAPI Database Loader</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --primary-dark: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --bg-dark: #0f172a;
+            --bg-card: #1e293b;
+            --bg-card-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #334155;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        .navbar {
+            background: var(--bg-card);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .navbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .navbar-brand i { color: var(--primary); font-size: 1.5rem; }
+        
+        .navbar-status {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        
+        .status-badge.online { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .status-badge.offline { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .status-badge .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        
+        .grid-2 { grid-template-columns: repeat(2, 1fr); }
+        .grid-3 { grid-template-columns: repeat(3, 1fr); }
+        .grid-4 { grid-template-columns: repeat(4, 1fr); }
+        
+        @media (max-width: 1200px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 768px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+        
+        .card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.4);
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .card-icon {
+            width: 40px; height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+        }
+        
+        .card-icon.blue { background: rgba(59, 130, 246, 0.2); color: var(--primary); }
+        .card-icon.green { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .card-icon.yellow { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        .card-icon.red { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        
+        .card-value {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .card-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+        
+        .sync-card { grid-column: span 2; }
+        @media (max-width: 768px) { .sync-card { grid-column: span 1; } }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+        .btn-primary:hover:not(:disabled) { background: var(--primary-dark); }
+        
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+        .btn-success:hover:not(:disabled) { background: #059669; }
+        
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+        .btn-danger:hover:not(:disabled) { background: #dc2626; }
+        
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+        .btn-outline:hover:not(:disabled) { background: var(--bg-card-hover); }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        .progress-container {
+            margin: 1.5rem 0;
+        }
+        
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .progress-bar {
+            height: 8px;
+            background: var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--success));
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+        
+        .sync-info {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        
+        .sync-info-item {
+            text-align: center;
+        }
+        
+        .sync-info-value {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+        
+        .sync-info-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        
+        .table-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .table-item {
+            background: var(--bg-dark);
+            padding: 12px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid var(--border);
+        }
+        
+        .table-name {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        
+        .table-count {
+            font-weight: 600;
+            color: var(--primary);
+        }
+        
+        .table-count.zero { color: var(--text-muted); }
+        
+        .log-viewer {
+            background: var(--bg-dark);
+            border-radius: 8px;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 0.8rem;
+            border: 1px solid var(--border);
+        }
+        
+        .log-entry {
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-bottom: 4px;
+            display: flex;
+            gap: 10px;
+        }
+        
+        .log-entry:hover { background: var(--bg-card); }
+        
+        .log-time { color: var(--text-muted); min-width: 80px; }
+        .log-level { min-width: 60px; font-weight: 500; }
+        .log-level.info { color: var(--primary); }
+        .log-level.warning { color: var(--warning); }
+        .log-level.error { color: var(--danger); }
+        .log-level.debug { color: var(--text-muted); }
+        .log-message { color: var(--text-secondary); }
+        
+        .toast-container {
+            position: fixed;
+            top: 80px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .toast {
+            background: var(--bg-card);
+            padding: 12px 20px;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: slideIn 0.3s ease;
+            min-width: 300px;
+        }
+        
+        .toast.success { border-left-color: var(--success); }
+        .toast.error { border-left-color: var(--danger); }
+        .toast.warning { border-left-color: var(--warning); }
+        
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+        
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg-dark); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🔄 Tally FastAPI Database Loader</h1>
-            <p>Sync Tally ERP data to SQLite database</p>
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <i class="fas fa-database"></i>
+            <span>Tally FastAPI Database Loader</span>
         </div>
+        <div class="navbar-status">
+            <div class="status-badge" id="tally-status">
+                <span class="dot"></span>
+                <span>Tally: Checking...</span>
+            </div>
+            <div class="status-badge" id="db-status">
+                <span class="dot"></span>
+                <span>Database: Checking...</span>
+            </div>
+        </div>
+    </nav>
 
-        <!-- Health Status -->
-        <div class="card">
-            <h2 class="card-title">System Health</h2>
-            <div id="health-status">Loading...</div>
+    <div class="container">
+        <!-- Stats Cards -->
+        <div class="grid grid-4">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Total Records</span>
+                    <div class="card-icon blue"><i class="fas fa-layer-group"></i></div>
+                </div>
+                <div class="card-value" id="total-records">0</div>
+                <div class="card-label">Across all tables</div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Master Tables</span>
+                    <div class="card-icon green"><i class="fas fa-table"></i></div>
+                </div>
+                <div class="card-value" id="master-count">0</div>
+                <div class="card-label">19 tables</div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Transaction Tables</span>
+                    <div class="card-icon yellow"><i class="fas fa-exchange-alt"></i></div>
+                </div>
+                <div class="card-value" id="transaction-count">0</div>
+                <div class="card-label">13 tables</div>
+            </div>
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Last Sync</span>
+                    <div class="card-icon red"><i class="fas fa-clock"></i></div>
+                </div>
+                <div class="card-value" id="last-sync-time">--:--</div>
+                <div class="card-label" id="last-sync-date">Never</div>
+            </div>
         </div>
 
         <!-- Sync Control -->
-        <div class="card">
-            <h2 class="card-title">Sync Control</h2>
-            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                <button class="btn btn-primary" onclick="startSync()">▶️ Start Full Sync</button>
-                <button class="btn btn-danger" onclick="cancelSync()">⏹️ Cancel</button>
-            </div>
-            <div id="sync-status">
-                <p>Status: <span id="sync-state">Idle</span></p>
-                <div class="progress" style="margin-top: 10px;">
-                    <div class="progress-bar" id="sync-progress" style="width: 0%"></div>
+        <div class="grid grid-2">
+            <div class="card sync-card">
+                <div class="card-header">
+                    <span class="card-title">Sync Control</span>
+                    <span class="status-badge" id="sync-status-badge">
+                        <span class="dot"></span>
+                        <span id="sync-status-text">Idle</span>
+                    </span>
                 </div>
-                <p style="margin-top: 10px; color: var(--text-muted);">
-                    <span id="sync-table">-</span> | <span id="sync-rows">0</span> rows
-                </p>
+                
+                <div class="btn-group">
+                    <button class="btn btn-primary" id="btn-full-sync" onclick="startFullSync()">
+                        <i class="fas fa-sync"></i> Full Sync
+                    </button>
+                    <button class="btn btn-success" id="btn-incremental-sync" onclick="startIncrementalSync()">
+                        <i class="fas fa-bolt"></i> Incremental Sync
+                    </button>
+                    <button class="btn btn-danger" id="btn-cancel" onclick="cancelSync()" disabled>
+                        <i class="fas fa-stop"></i> Cancel
+                    </button>
+                    <button class="btn btn-outline" onclick="refreshAll()">
+                        <i class="fas fa-redo"></i> Refresh
+                    </button>
+                </div>
+                
+                <div class="progress-container">
+                    <div class="progress-header">
+                        <span id="current-table">Ready to sync</span>
+                        <span id="progress-percent">0%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+                    </div>
+                </div>
+                
+                <div class="sync-info">
+                    <div class="sync-info-item">
+                        <div class="sync-info-value" id="rows-processed">0</div>
+                        <div class="sync-info-label">Rows Processed</div>
+                    </div>
+                    <div class="sync-info-item">
+                        <div class="sync-info-value" id="sync-duration">0s</div>
+                        <div class="sync-info-label">Duration</div>
+                    </div>
+                    <div class="sync-info-item">
+                        <div class="sync-info-value" id="sync-speed">0</div>
+                        <div class="sync-info-label">Rows/sec</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Logs -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Recent Logs</span>
+                    <button class="btn btn-outline" onclick="clearLogs()" style="padding: 6px 12px; font-size: 0.8rem;">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </div>
+                <div class="log-viewer" id="log-viewer">
+                    <div class="empty-state">
+                        <i class="fas fa-scroll"></i>
+                        <p>No logs yet</p>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Table Counts -->
         <div class="card">
-            <h2 class="card-title">Database Tables</h2>
-            <div id="table-counts">Loading...</div>
-        </div>
-
-        <!-- Recent Logs -->
-        <div class="card">
-            <h2 class="card-title">Recent Logs</h2>
-            <div class="log-viewer" id="log-viewer">
-                Loading logs...
+            <div class="card-header">
+                <span class="card-title">Database Tables</span>
+                <span id="tables-summary" style="color: var(--text-muted); font-size: 0.85rem;">32 tables</span>
+            </div>
+            <div class="table-grid" id="table-grid">
+                <div class="empty-state">
+                    <i class="fas fa-database"></i>
+                    <p>Loading tables...</p>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
     <script>
         const API_BASE = '';
+        let syncStartTime = null;
+        let syncInterval = null;
+        let logs = [];
 
+        // Toast Notifications
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'}"></i>
+                <span>${message}</span>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 5000);
+        }
+
+        // Health Check
         async function fetchHealth() {
             try {
                 const res = await fetch(`${API_BASE}/api/health`);
                 const data = await res.json();
-                const el = document.getElementById('health-status');
                 
-                const tallyStatus = data.components?.tally?.status || 'unknown';
-                const dbStatus = data.components?.database?.status || 'unknown';
+                const tallyEl = document.getElementById('tally-status');
+                const dbEl = document.getElementById('db-status');
                 
-                el.innerHTML = `
-                    <p>Tally: <span class="status status-${tallyStatus}">${tallyStatus}</span></p>
-                    <p style="margin-top: 8px;">Database: <span class="status status-${dbStatus}">${dbStatus}</span></p>
-                `;
+                const tallyOk = data.components?.tally?.status === 'healthy';
+                const dbOk = data.components?.database?.status === 'healthy';
+                
+                tallyEl.className = `status-badge ${tallyOk ? 'online' : 'offline'}`;
+                tallyEl.innerHTML = `<span class="dot"></span><span>Tally: ${tallyOk ? 'Connected' : 'Disconnected'}</span>`;
+                
+                dbEl.className = `status-badge ${dbOk ? 'online' : 'offline'}`;
+                dbEl.innerHTML = `<span class="dot"></span><span>Database: ${dbOk ? 'Connected' : 'Disconnected'}</span>`;
             } catch (e) {
-                document.getElementById('health-status').innerHTML = '<p class="status status-unhealthy">Error loading health</p>';
+                console.error('Health check failed:', e);
             }
         }
 
+        // Sync Status
         async function fetchSyncStatus() {
             try {
                 const res = await fetch(`${API_BASE}/api/sync/status`);
                 const data = await res.json();
                 
-                document.getElementById('sync-state').textContent = data.status || 'idle';
-                document.getElementById('sync-progress').style.width = `${data.progress || 0}%`;
-                document.getElementById('sync-table').textContent = data.current_table || '-';
-                document.getElementById('sync-rows').textContent = data.rows_processed || 0;
+                const status = data.status || 'idle';
+                const progress = data.progress || 0;
+                const currentTable = data.current_table || '-';
+                const rowsProcessed = data.rows_processed || 0;
+                
+                // Update UI
+                document.getElementById('sync-status-text').textContent = status.charAt(0).toUpperCase() + status.slice(1);
+                document.getElementById('progress-percent').textContent = `${progress}%`;
+                document.getElementById('progress-fill').style.width = `${progress}%`;
+                document.getElementById('current-table').textContent = status === 'running' ? `Syncing: ${currentTable}` : 'Ready to sync';
+                document.getElementById('rows-processed').textContent = rowsProcessed.toLocaleString();
+                
+                // Status badge color
+                const badge = document.getElementById('sync-status-badge');
+                badge.className = 'status-badge ' + (status === 'running' ? 'online' : status === 'completed' ? 'online' : status === 'failed' ? 'offline' : '');
+                
+                // Button states
+                const isRunning = status === 'running';
+                document.getElementById('btn-full-sync').disabled = isRunning;
+                document.getElementById('btn-incremental-sync').disabled = isRunning;
+                document.getElementById('btn-cancel').disabled = !isRunning;
+                
+                // Duration calculation
+                if (data.started_at) {
+                    const start = new Date(data.started_at);
+                    const end = data.completed_at ? new Date(data.completed_at) : new Date();
+                    const duration = Math.round((end - start) / 1000);
+                    document.getElementById('sync-duration').textContent = `${duration}s`;
+                    
+                    if (duration > 0 && rowsProcessed > 0) {
+                        document.getElementById('sync-speed').textContent = Math.round(rowsProcessed / duration);
+                    }
+                }
+                
+                // Last sync time
+                if (data.completed_at) {
+                    const completed = new Date(data.completed_at);
+                    document.getElementById('last-sync-time').textContent = completed.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                    document.getElementById('last-sync-date').textContent = completed.toLocaleDateString();
+                }
+                
+                // Handle completion
+                if (status === 'completed' && syncInterval) {
+                    clearInterval(syncInterval);
+                    syncInterval = null;
+                    showToast(`Sync completed! ${rowsProcessed.toLocaleString()} rows processed.`, 'success');
+                    fetchTableCounts();
+                } else if (status === 'failed' && syncInterval) {
+                    clearInterval(syncInterval);
+                    syncInterval = null;
+                    showToast(`Sync failed: ${data.error_message || 'Unknown error'}`, 'error');
+                }
+                
             } catch (e) {
                 console.error('Error fetching sync status:', e);
             }
         }
 
-        async function startSync() {
+        // Start Full Sync
+        async function startFullSync() {
             try {
                 await fetch(`${API_BASE}/api/sync/full`, { method: 'POST' });
-                alert('Sync started!');
+                showToast('Full sync started', 'info');
+                syncStartTime = new Date();
+                syncInterval = setInterval(fetchSyncStatus, 1000);
                 fetchSyncStatus();
+                addLog('INFO', 'Full sync started');
             } catch (e) {
-                alert('Failed to start sync');
+                showToast('Failed to start sync', 'error');
             }
         }
 
+        // Start Incremental Sync
+        async function startIncrementalSync() {
+            try {
+                await fetch(`${API_BASE}/api/sync/incremental`, { method: 'POST' });
+                showToast('Incremental sync started', 'info');
+                syncStartTime = new Date();
+                syncInterval = setInterval(fetchSyncStatus, 1000);
+                fetchSyncStatus();
+                addLog('INFO', 'Incremental sync started');
+            } catch (e) {
+                showToast('Failed to start sync', 'error');
+            }
+        }
+
+        // Cancel Sync
         async function cancelSync() {
             try {
                 await fetch(`${API_BASE}/api/sync/cancel`, { method: 'POST' });
-                alert('Sync cancelled');
-                fetchSyncStatus();
+                showToast('Sync cancelled', 'warning');
+                addLog('WARNING', 'Sync cancelled by user');
             } catch (e) {
-                alert('Failed to cancel sync');
+                showToast('Failed to cancel sync', 'error');
             }
         }
 
+        // Table Counts
         async function fetchTableCounts() {
             try {
                 const res = await fetch(`${API_BASE}/api/data/counts`);
                 const data = await res.json();
-                const el = document.getElementById('table-counts');
                 
-                let html = '<table class="table"><tr><th>Table</th><th>Rows</th></tr>';
+                const grid = document.getElementById('table-grid');
+                let html = '';
+                let total = 0;
+                let masterTotal = 0;
+                let transactionTotal = 0;
+                
+                const masterTables = ['mst_group', 'mst_ledger', 'mst_vouchertype', 'mst_uom', 'mst_godown', 
+                    'mst_stock_category', 'mst_stock_group', 'mst_stock_item', 'mst_cost_category', 
+                    'mst_cost_centre', 'mst_attendance_type', 'mst_employee', 'mst_payhead',
+                    'mst_gst_effective_rate', 'mst_opening_batch_allocation', 'mst_opening_bill_allocation',
+                    'mst_stockitem_standard_cost', 'mst_stockitem_standard_price', 'trn_closingstock_ledger'];
+                
                 for (const [table, count] of Object.entries(data)) {
-                    html += `<tr><td>${table}</td><td>${count}</td></tr>`;
+                    total += count;
+                    if (masterTables.includes(table)) {
+                        masterTotal += count;
+                    } else {
+                        transactionTotal += count;
+                    }
+                    
+                    html += `
+                        <div class="table-item">
+                            <span class="table-name">${table}</span>
+                            <span class="table-count ${count === 0 ? 'zero' : ''}">${count.toLocaleString()}</span>
+                        </div>
+                    `;
                 }
-                html += '</table>';
-                el.innerHTML = html;
-            } catch (e) {
-                document.getElementById('table-counts').innerHTML = '<p>Error loading counts</p>';
-            }
-        }
-
-        async function fetchLogs() {
-            try {
-                const res = await fetch(`${API_BASE}/api/logs?limit=50`);
-                const data = await res.json();
-                const el = document.getElementById('log-viewer');
                 
-                if (data.logs && data.logs.length > 0) {
-                    el.innerHTML = data.logs.map(log => {
-                        const levelClass = `log-${log.level?.toLowerCase() || 'info'}`;
-                        return `<div class="log-entry ${levelClass}">${log.timestamp} | ${log.level} | ${log.message}</div>`;
-                    }).join('');
-                } else {
-                    el.innerHTML = '<p>No logs available</p>';
-                }
+                grid.innerHTML = html || '<div class="empty-state"><i class="fas fa-database"></i><p>No tables found</p></div>';
+                
+                document.getElementById('total-records').textContent = total.toLocaleString();
+                document.getElementById('master-count').textContent = masterTotal.toLocaleString();
+                document.getElementById('transaction-count').textContent = transactionTotal.toLocaleString();
+                document.getElementById('tables-summary').textContent = `${Object.keys(data).length} tables • ${total.toLocaleString()} total rows`;
+                
             } catch (e) {
-                document.getElementById('log-viewer').innerHTML = '<p>Error loading logs</p>';
+                console.error('Error fetching table counts:', e);
             }
         }
 
-        // Initial load
+        // Logs
+        function addLog(level, message) {
+            const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            logs.unshift({ time, level, message });
+            if (logs.length > 100) logs.pop();
+            renderLogs();
+        }
+
+        function renderLogs() {
+            const viewer = document.getElementById('log-viewer');
+            if (logs.length === 0) {
+                viewer.innerHTML = '<div class="empty-state"><i class="fas fa-scroll"></i><p>No logs yet</p></div>';
+                return;
+            }
+            
+            viewer.innerHTML = logs.map(log => `
+                <div class="log-entry">
+                    <span class="log-time">${log.time}</span>
+                    <span class="log-level ${log.level.toLowerCase()}">${log.level}</span>
+                    <span class="log-message">${log.message}</span>
+                </div>
+            `).join('');
+        }
+
+        function clearLogs() {
+            logs = [];
+            renderLogs();
+            showToast('Logs cleared', 'info');
+        }
+
+        // Refresh All
+        function refreshAll() {
+            fetchHealth();
+            fetchSyncStatus();
+            fetchTableCounts();
+            showToast('Data refreshed', 'info');
+        }
+
+        // Initial Load
         fetchHealth();
         fetchSyncStatus();
         fetchTableCounts();
-        fetchLogs();
+        addLog('INFO', 'Dashboard loaded');
 
         // Auto-refresh
-        setInterval(fetchSyncStatus, 2000);
         setInterval(fetchHealth, 10000);
-        setInterval(fetchLogs, 5000);
+        setInterval(fetchSyncStatus, 3000);
+        setInterval(fetchTableCounts, 30000);
     </script>
 </body>
 </html>
