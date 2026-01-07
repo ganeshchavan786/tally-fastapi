@@ -99,3 +99,41 @@ async def info():
             "path": config.database.path
         }
     }
+
+
+@app.post("/api/backup")
+async def create_backup():
+    """Create database backup before full sync"""
+    import shutil
+    from datetime import datetime
+    
+    db_path = Path(config.database.path)
+    if not db_path.exists():
+        return {"status": "skipped", "message": "No database to backup"}
+    
+    # Create backups folder
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(exist_ok=True)
+    
+    # Create backup with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"tally_backup_{timestamp}.db"
+    
+    try:
+        shutil.copy2(db_path, backup_path)
+        logger.info(f"Backup created: {backup_path}")
+        
+        # Keep only last 5 backups
+        backups = sorted(backup_dir.glob("tally_backup_*.db"), reverse=True)
+        for old_backup in backups[5:]:
+            old_backup.unlink()
+            logger.info(f"Deleted old backup: {old_backup}")
+        
+        return {
+            "status": "success",
+            "backup_path": str(backup_path),
+            "message": f"Backup created successfully"
+        }
+    except Exception as e:
+        logger.error(f"Backup failed: {e}")
+        return {"status": "error", "message": str(e)}

@@ -511,6 +511,85 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
 
+    <!-- Confirmation Modal -->
+    <div class="modal-overlay" id="confirm-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <i class="fas fa-exclamation-triangle" style="color: var(--warning); font-size: 2rem;"></i>
+                <h3>⚠️ Full Sync Warning</h3>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--danger); font-weight: 600; margin-bottom: 10px;">
+                    सगळा existing data DELETE होईल!
+                </p>
+                <p id="modal-record-count" style="margin-bottom: 15px;">
+                    Currently <strong>0</strong> records in database
+                </p>
+                <div style="background: var(--bg-dark); padding: 12px; border-radius: 8px; margin-bottom: 15px;">
+                    <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                        <i class="fas fa-info-circle"></i> 
+                        Daily updates साठी <strong>Incremental Sync</strong> वापरा.<br>
+                        Full Sync फक्त first time किंवा reset साठी.
+                    </p>
+                </div>
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="backup-checkbox" checked>
+                    <span>Sync आधी backup घ्या</span>
+                </label>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal()">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-danger" onclick="confirmFullSync()">
+                    <i class="fas fa-trash"></i> Delete & Sync
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+        .modal {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 450px;
+            width: 90%;
+            border: 1px solid var(--border);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+        }
+        .modal-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .modal-header h3 {
+            margin-top: 10px;
+            color: var(--warning);
+        }
+        .modal-body {
+            margin-bottom: 20px;
+        }
+        .modal-footer {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .modal input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--primary);
+        }
+    </style>
+
     <script>
         const API_BASE = '';
         let syncStartTime = null;
@@ -616,9 +695,35 @@
             }
         }
 
-        // Start Full Sync
-        async function startFullSync() {
+        // Total records for modal
+        let totalRecords = 0;
+
+        // Show Full Sync confirmation modal
+        function startFullSync() {
+            // Update modal with current record count
+            document.getElementById('modal-record-count').innerHTML = 
+                `Currently <strong>${totalRecords.toLocaleString()}</strong> records in database`;
+            document.getElementById('confirm-modal').style.display = 'flex';
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('confirm-modal').style.display = 'none';
+        }
+
+        // Confirm and start Full Sync
+        async function confirmFullSync() {
+            closeModal();
+            const doBackup = document.getElementById('backup-checkbox').checked;
+            
             try {
+                // Create backup if checkbox is checked
+                if (doBackup && totalRecords > 0) {
+                    showToast('Creating backup...', 'info');
+                    addLog('INFO', 'Creating backup before full sync');
+                    await fetch(`${API_BASE}/api/backup`, { method: 'POST' });
+                }
+                
                 await fetch(`${API_BASE}/api/sync/full`, { method: 'POST' });
                 showToast('Full sync started', 'info');
                 syncStartTime = new Date();
@@ -695,6 +800,9 @@
                 document.getElementById('master-count').textContent = masterTotal.toLocaleString();
                 document.getElementById('transaction-count').textContent = transactionTotal.toLocaleString();
                 document.getElementById('tables-summary').textContent = `${Object.keys(data).length} tables • ${total.toLocaleString()} total rows`;
+                
+                // Update totalRecords for modal warning
+                totalRecords = total;
                 
             } catch (e) {
                 console.error('Error fetching table counts:', e);
