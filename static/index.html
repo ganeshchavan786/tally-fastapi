@@ -34,7 +34,7 @@
         
         .navbar {
             background: var(--bg-card);
-            padding: 1rem 2rem;
+            padding: 0.5rem 1rem;
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -47,26 +47,26 @@
         .navbar-brand {
             display: flex;
             align-items: center;
-            gap: 12px;
-            font-size: 1.25rem;
+            gap: 8px;
+            font-size: 0.95rem;
             font-weight: 600;
         }
         
-        .navbar-brand i { color: var(--primary); font-size: 1.5rem; }
+        .navbar-brand i { color: var(--primary); font-size: 1.1rem; }
         
         .navbar-status {
             display: flex;
-            gap: 20px;
+            gap: 12px;
             align-items: center;
         }
         
         .status-badge {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.7rem;
             font-weight: 500;
         }
         
@@ -85,16 +85,16 @@
         }
         
         .container {
-            max-width: 1400px;
+            max-width: 1200px;
             margin: 0 auto;
-            padding: 2rem;
+            padding: 0.75rem;
         }
         
         .grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 1.5rem;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
         }
         
         .grid-2 { grid-template-columns: repeat(2, 1fr); }
@@ -106,27 +106,27 @@
         
         .card {
             background: var(--bg-card);
-            border-radius: 12px;
-            padding: 1.5rem;
+            border-radius: 8px;
+            padding: 0.75rem;
             border: 1px solid var(--border);
             box-shadow: var(--shadow);
             transition: transform 0.2s, box-shadow 0.2s;
         }
         
         .card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 8px 12px -2px rgba(0, 0, 0, 0.4);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px -1px rgba(0, 0, 0, 0.3);
         }
         
         .card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
         }
         
         .card-title {
-            font-size: 0.9rem;
+            font-size: 0.7rem;
             font-weight: 500;
             color: var(--text-secondary);
             text-transform: uppercase;
@@ -134,12 +134,12 @@
         }
         
         .card-icon {
-            width: 40px; height: 40px;
-            border-radius: 10px;
+            width: 28px; height: 28px;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 0.9rem;
         }
         
         .card-icon.blue { background: rgba(59, 130, 246, 0.2); color: var(--primary); }
@@ -148,13 +148,13 @@
         .card-icon.red { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
         
         .card-value {
-            font-size: 2rem;
+            font-size: 1.25rem;
             font-weight: 700;
-            margin-bottom: 0.25rem;
+            margin-bottom: 0.15rem;
         }
         
         .card-label {
-            font-size: 0.85rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
         }
         
@@ -162,15 +162,15 @@
         @media (max-width: 768px) { .sync-card { grid-column: span 1; } }
         
         .btn {
-            padding: 10px 20px;
+            padding: 6px 12px;
             border: none;
-            border-radius: 8px;
-            font-size: 0.9rem;
+            border-radius: 6px;
+            font-size: 0.75rem;
             font-weight: 500;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 5px;
             transition: all 0.2s;
         }
         
@@ -211,36 +211,36 @@
         }
         
         .progress-container {
-            margin: 1.5rem 0;
+            margin: 0.75rem 0;
         }
         
         .progress-header {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 8px;
-            font-size: 0.85rem;
+            margin-bottom: 4px;
+            font-size: 0.7rem;
         }
         
         .progress-bar {
-            height: 8px;
+            height: 6px;
             background: var(--border);
-            border-radius: 4px;
+            border-radius: 3px;
             overflow: hidden;
         }
         
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, var(--primary), var(--success));
-            border-radius: 4px;
+            border-radius: 3px;
             transition: width 0.3s ease;
         }
         
         .sync-info {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
-            gap: 1rem;
-            margin-top: 1rem;
-            padding-top: 1rem;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            padding-top: 0.5rem;
             border-top: 1px solid var(--border);
         }
         
@@ -249,32 +249,33 @@
         }
         
         .sync-info-value {
-            font-size: 1.25rem;
+            font-size: 0.9rem;
             font-weight: 600;
             color: var(--text-primary);
         }
         
         .sync-info-label {
-            font-size: 0.75rem;
+            font-size: 0.65rem;
             color: var(--text-muted);
-            margin-top: 4px;
+            margin-top: 2px;
         }
         
         .table-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 10px;
-            max-height: 400px;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 6px;
+            max-height: 250px;
             overflow-y: auto;
         }
         
         .table-item {
             background: var(--bg-dark);
-            padding: 12px;
-            border-radius: 8px;
+            padding: 6px 8px;
+            border-radius: 4px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            font-size: 0.7rem;
             border: 1px solid var(--border);
         }
         
@@ -475,29 +476,16 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Recent Logs (in sync control card) -->
-            <div class="card">
-                <div class="card-header">
-                    <span class="card-title">Recent Logs</span>
-                    <button class="btn btn-outline" onclick="clearLogs()" style="padding: 6px 12px; font-size: 0.8rem;">
-                        <i class="fas fa-trash"></i> Clear
-                    </button>
-                </div>
-                <div class="log-viewer" id="log-viewer">
-                    <div class="empty-state">
-                        <i class="fas fa-scroll"></i>
-                        <p>No logs yet</p>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <!-- Tabbed Features Section -->
         <div class="card tabs-card">
             <div class="tabs-header">
-                <button class="tab-btn active" onclick="switchTab('history')">
-                    <i class="fas fa-history"></i> Sync History
+                <button class="tab-btn active" onclick="switchTab('logs')">
+                    <i class="fas fa-scroll"></i> Logs
+                </button>
+                <button class="tab-btn" onclick="switchTab('history')">
+                    <i class="fas fa-history"></i> History
                 </button>
                 <button class="tab-btn" onclick="switchTab('backup')">
                     <i class="fas fa-archive"></i> Backup
@@ -510,8 +498,24 @@
                 </button>
             </div>
 
+            <!-- Tab: Logs -->
+            <div class="tab-content active" id="tab-logs">
+                <div class="tab-header">
+                    <span class="card-title">Recent Logs</span>
+                    <button class="btn btn-outline" onclick="clearLogs()" style="padding: 4px 8px; font-size: 0.75rem;">
+                        <i class="fas fa-trash"></i> Clear
+                    </button>
+                </div>
+                <div class="log-viewer" id="log-viewer">
+                    <div class="empty-state">
+                        <i class="fas fa-scroll"></i>
+                        <p>No logs yet</p>
+                    </div>
+                </div>
+            </div>
+
             <!-- Tab: Sync History -->
-            <div class="tab-content active" id="tab-history">
+            <div class="tab-content" id="tab-history">
                 <div class="tab-header">
                     <span class="card-title">Sync History</span>
                     <button class="btn btn-outline" onclick="fetchSyncHistory()" style="padding: 6px 12px; font-size: 0.8rem;">
@@ -545,45 +549,63 @@
             <!-- Tab: Schedule -->
             <div class="tab-content" id="tab-schedule">
                 <div class="tab-header">
-                    <span class="card-title">Auto Sync Schedule</span>
+                    <span class="card-title">Auto Sync & Backup Schedule</span>
                     <span class="status-badge" id="schedule-status-badge">
                         <span class="dot"></span>
                         <span id="schedule-status-text">Disabled</span>
                     </span>
                 </div>
                 <div class="schedule-form">
-                    <div class="schedule-row">
-                        <label class="schedule-toggle">
-                            <input type="checkbox" id="schedule-enabled" onchange="updateSchedule()">
-                            <span>Enable Auto Sync</span>
-                        </label>
-                    </div>
-                    <div class="schedule-row">
-                        <label>Sync Type:</label>
-                        <select id="schedule-type" onchange="updateSchedule()">
-                            <option value="incremental">Incremental (Recommended)</option>
-                            <option value="full">Full Sync</option>
-                        </select>
-                    </div>
-                    <div class="schedule-row">
-                        <label>Time:</label>
-                        <input type="time" id="schedule-time" value="06:00" onchange="updateSchedule()">
-                    </div>
-                    <div class="schedule-row">
-                        <label>Days:</label>
-                        <div class="day-selector">
-                            <label><input type="checkbox" value="mon" checked> Mon</label>
-                            <label><input type="checkbox" value="tue" checked> Tue</label>
-                            <label><input type="checkbox" value="wed" checked> Wed</label>
-                            <label><input type="checkbox" value="thu" checked> Thu</label>
-                            <label><input type="checkbox" value="fri" checked> Fri</label>
-                            <label><input type="checkbox" value="sat" checked> Sat</label>
-                            <label><input type="checkbox" value="sun"> Sun</label>
+                    <div class="schedule-section">
+                        <h4 style="margin: 0 0 10px 0; color: var(--primary);"><i class="fas fa-sync"></i> Auto Sync</h4>
+                        <div class="schedule-row">
+                            <label class="schedule-toggle">
+                                <input type="checkbox" id="schedule-enabled" onchange="updateSchedule()">
+                                <span>Enable</span>
+                            </label>
+                        </div>
+                        <div class="schedule-row">
+                            <label>Interval:</label>
+                            <select id="schedule-interval" onchange="updateSchedule()">
+                                <option value="5min">Every 5 Minutes</option>
+                                <option value="15min">Every 15 Minutes</option>
+                                <option value="30min">Every 30 Minutes</option>
+                                <option value="1hour" selected>Every 1 Hour</option>
+                                <option value="daily">Daily (at time)</option>
+                            </select>
+                        </div>
+                        <div class="schedule-row" id="sync-time-row">
+                            <label>Time:</label>
+                            <input type="time" id="schedule-time" value="06:00" onchange="updateSchedule()">
+                        </div>
+                        <div class="schedule-row">
+                            <label>Type:</label>
+                            <select id="schedule-type" onchange="updateSchedule()">
+                                <option value="incremental">Incremental</option>
+                                <option value="full">Full Sync</option>
+                            </select>
                         </div>
                     </div>
-                    <div class="schedule-row" id="next-run-row" style="display: none;">
-                        <label>Next Run:</label>
-                        <span id="next-run-time" style="color: var(--success);"></span>
+                    <div class="schedule-section" style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border);">
+                        <h4 style="margin: 0 0 10px 0; color: var(--success);"><i class="fas fa-archive"></i> Auto Backup</h4>
+                        <div class="schedule-row">
+                            <label class="schedule-toggle">
+                                <input type="checkbox" id="backup-schedule-enabled" onchange="updateSchedule()">
+                                <span>Enable</span>
+                            </label>
+                        </div>
+                        <div class="schedule-row">
+                            <label>Interval:</label>
+                            <select id="backup-interval" onchange="updateSchedule()">
+                                <option value="1hour">Every 1 Hour</option>
+                                <option value="6hour">Every 6 Hours</option>
+                                <option value="daily" selected>Daily</option>
+                            </select>
+                        </div>
+                        <div class="schedule-row" id="backup-time-row">
+                            <label>Time:</label>
+                            <input type="time" id="backup-time" value="23:00" onchange="updateSchedule()">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -830,21 +852,21 @@
             display: flex;
             border-bottom: 1px solid var(--border);
             background: var(--bg-dark);
-            border-radius: 12px 12px 0 0;
+            border-radius: 8px 8px 0 0;
             overflow-x: auto;
         }
         .tab-btn {
             flex: 1;
-            padding: 14px 16px;
+            padding: 8px 10px;
             background: transparent;
             border: none;
             color: var(--text-muted);
-            font-size: 0.9rem;
+            font-size: 0.7rem;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 4px;
             transition: all 0.2s;
             border-bottom: 2px solid transparent;
             white-space: nowrap;
@@ -857,15 +879,23 @@
         }
         .tab-content {
             display: none;
-            padding: 16px;
+            padding: 10px;
         }
         .tab-content.active { display: block; }
         .tab-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
         }
+        .history-list, .backup-list, .log-viewer { max-height: 180px; overflow-y: auto; }
+        .history-item, .backup-item { padding: 8px; margin-bottom: 6px; font-size: 0.75rem; }
+        .history-meta, .backup-meta { font-size: 0.65rem; }
+        .log-entry { padding: 4px 8px; font-size: 0.7rem; }
+        .schedule-form { font-size: 0.75rem; }
+        .schedule-row { margin-bottom: 8px; gap: 8px; }
+        .schedule-row label { min-width: 60px; font-size: 0.7rem; }
+        .schedule-row select, .schedule-row input[type="time"] { padding: 4px 8px; font-size: 0.75rem; }
     </style>
 
     <script>
