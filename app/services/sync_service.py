@@ -109,6 +109,9 @@ class SyncService:
             self.completed_at = datetime.now()
             self.progress = 100
             
+            # Update config table with sync info
+            await self._update_config_table()
+            
             # Update sync history - completed
             await self._update_sync_history(sync_history_id, "completed")
             
@@ -181,6 +184,9 @@ class SyncService:
             self.status = SyncStatus.COMPLETED
             self.completed_at = datetime.now()
             self.progress = 100
+            
+            # Update config table with sync info
+            await self._update_config_table()
             
             # Update sync history - completed
             await self._update_sync_history(sync_history_id, "completed")
@@ -769,6 +775,41 @@ class SyncService:
         """Dismiss incomplete sync warning"""
         self._clear_sync_state()
         return {"status": "dismissed", "message": "Incomplete sync warning dismissed"}
+    
+    async def _update_config_table(self) -> None:
+        """Update config table with sync info (like Node.js app does)"""
+        try:
+            # Clear existing config
+            await database_service.execute("DELETE FROM config")
+            
+            # Get company name from Tally
+            company_name = "Unknown"
+            try:
+                company_info = await tally_service.get_company_info()
+                if company_info:
+                    company_name = company_info.get("name", "Unknown")
+            except:
+                pass
+            
+            # Insert config values
+            config_values = [
+                ("Update Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+                ("Company Name", company_name),
+                ("Period From", config.sync.from_date),
+                ("Period To", config.sync.to_date),
+                ("Sync Mode", config.sync.mode),
+                ("Total Rows", str(self.rows_processed)),
+            ]
+            
+            for name, value in config_values:
+                await database_service.execute(
+                    "INSERT INTO config (name, value) VALUES (?, ?)",
+                    (name, value)
+                )
+            
+            logger.info("Config table updated with sync info")
+        except Exception as e:
+            logger.warning(f"Failed to update config table: {e}")
 
 
 # Global service instance
