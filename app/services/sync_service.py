@@ -786,17 +786,18 @@ class SyncService:
             company_name = "Unknown"
             try:
                 company_info = await tally_service.get_company_info()
-                if company_info:
-                    company_name = company_info.get("name", "Unknown")
-            except:
-                pass
+                if company_info and not company_info.get("error"):
+                    # Key is "company_name" not "name"
+                    company_name = company_info.get("company_name", "Unknown") or "Unknown"
+            except Exception as e:
+                logger.warning(f"Could not get company name: {e}")
             
-            # Insert config values
+            # Insert config values (from_date/to_date are in tally config, not sync config)
             config_values = [
                 ("Update Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
                 ("Company Name", company_name),
-                ("Period From", config.sync.from_date),
-                ("Period To", config.sync.to_date),
+                ("Period From", config.tally.from_date),
+                ("Period To", config.tally.to_date),
                 ("Sync Mode", config.sync.mode),
                 ("Total Rows", str(self.rows_processed)),
             ]
