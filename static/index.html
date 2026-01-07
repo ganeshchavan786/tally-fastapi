@@ -476,7 +476,7 @@
                 </div>
             </div>
 
-            <!-- Recent Logs -->
+            <!-- Recent Logs (in sync control card) -->
             <div class="card">
                 <div class="card-header">
                     <span class="card-title">Recent Logs</span>
@@ -493,94 +493,112 @@
             </div>
         </div>
 
-        <!-- Sync History -->
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Sync History</span>
-                <button class="btn btn-outline" onclick="fetchSyncHistory()" style="padding: 6px 12px; font-size: 0.8rem;">
-                    <i class="fas fa-refresh"></i> Refresh
+        <!-- Tabbed Features Section -->
+        <div class="card tabs-card">
+            <div class="tabs-header">
+                <button class="tab-btn active" onclick="switchTab('history')">
+                    <i class="fas fa-history"></i> Sync History
+                </button>
+                <button class="tab-btn" onclick="switchTab('backup')">
+                    <i class="fas fa-archive"></i> Backup
+                </button>
+                <button class="tab-btn" onclick="switchTab('schedule')">
+                    <i class="fas fa-clock"></i> Schedule
+                </button>
+                <button class="tab-btn" onclick="switchTab('tables')">
+                    <i class="fas fa-database"></i> Tables
                 </button>
             </div>
-            <div class="history-list" id="sync-history">
-                <div class="empty-state">
-                    <i class="fas fa-history"></i>
-                    <p>No sync history yet</p>
-                </div>
-            </div>
-        </div>
 
-        <!-- Backup Management -->
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Backup Management</span>
-                <button class="btn btn-outline" onclick="createManualBackup()" style="padding: 6px 12px; font-size: 0.8rem;">
-                    <i class="fas fa-plus"></i> Create Backup
-                </button>
-            </div>
-            <div class="backup-list" id="backup-list">
-                <div class="empty-state">
-                    <i class="fas fa-archive"></i>
-                    <p>No backups yet</p>
+            <!-- Tab: Sync History -->
+            <div class="tab-content active" id="tab-history">
+                <div class="tab-header">
+                    <span class="card-title">Sync History</span>
+                    <button class="btn btn-outline" onclick="fetchSyncHistory()" style="padding: 6px 12px; font-size: 0.8rem;">
+                        <i class="fas fa-refresh"></i> Refresh
+                    </button>
                 </div>
-            </div>
-        </div>
-
-        <!-- Schedule Settings -->
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Auto Sync Schedule</span>
-                <span class="status-badge" id="schedule-status-badge">
-                    <span class="dot"></span>
-                    <span id="schedule-status-text">Disabled</span>
-                </span>
-            </div>
-            <div class="schedule-form">
-                <div class="schedule-row">
-                    <label class="schedule-toggle">
-                        <input type="checkbox" id="schedule-enabled" onchange="updateSchedule()">
-                        <span>Enable Auto Sync</span>
-                    </label>
-                </div>
-                <div class="schedule-row">
-                    <label>Sync Type:</label>
-                    <select id="schedule-type" onchange="updateSchedule()">
-                        <option value="incremental">Incremental (Recommended)</option>
-                        <option value="full">Full Sync</option>
-                    </select>
-                </div>
-                <div class="schedule-row">
-                    <label>Time:</label>
-                    <input type="time" id="schedule-time" value="06:00" onchange="updateSchedule()">
-                </div>
-                <div class="schedule-row">
-                    <label>Days:</label>
-                    <div class="day-selector">
-                        <label><input type="checkbox" value="mon" checked> Mon</label>
-                        <label><input type="checkbox" value="tue" checked> Tue</label>
-                        <label><input type="checkbox" value="wed" checked> Wed</label>
-                        <label><input type="checkbox" value="thu" checked> Thu</label>
-                        <label><input type="checkbox" value="fri" checked> Fri</label>
-                        <label><input type="checkbox" value="sat" checked> Sat</label>
-                        <label><input type="checkbox" value="sun"> Sun</label>
+                <div class="history-list" id="sync-history">
+                    <div class="empty-state">
+                        <i class="fas fa-history"></i>
+                        <p>No sync history yet</p>
                     </div>
                 </div>
-                <div class="schedule-row" id="next-run-row" style="display: none;">
-                    <label>Next Run:</label>
-                    <span id="next-run-time" style="color: var(--success);"></span>
+            </div>
+
+            <!-- Tab: Backup Management -->
+            <div class="tab-content" id="tab-backup">
+                <div class="tab-header">
+                    <span class="card-title">Backup Management</span>
+                    <button class="btn btn-outline" onclick="createManualBackup()" style="padding: 6px 12px; font-size: 0.8rem;">
+                        <i class="fas fa-plus"></i> Create Backup
+                    </button>
+                </div>
+                <div class="backup-list" id="backup-list">
+                    <div class="empty-state">
+                        <i class="fas fa-archive"></i>
+                        <p>No backups yet</p>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Table Counts -->
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Database Tables</span>
-                <span id="tables-summary" style="color: var(--text-muted); font-size: 0.85rem;">32 tables</span>
+            <!-- Tab: Schedule -->
+            <div class="tab-content" id="tab-schedule">
+                <div class="tab-header">
+                    <span class="card-title">Auto Sync Schedule</span>
+                    <span class="status-badge" id="schedule-status-badge">
+                        <span class="dot"></span>
+                        <span id="schedule-status-text">Disabled</span>
+                    </span>
+                </div>
+                <div class="schedule-form">
+                    <div class="schedule-row">
+                        <label class="schedule-toggle">
+                            <input type="checkbox" id="schedule-enabled" onchange="updateSchedule()">
+                            <span>Enable Auto Sync</span>
+                        </label>
+                    </div>
+                    <div class="schedule-row">
+                        <label>Sync Type:</label>
+                        <select id="schedule-type" onchange="updateSchedule()">
+                            <option value="incremental">Incremental (Recommended)</option>
+                            <option value="full">Full Sync</option>
+                        </select>
+                    </div>
+                    <div class="schedule-row">
+                        <label>Time:</label>
+                        <input type="time" id="schedule-time" value="06:00" onchange="updateSchedule()">
+                    </div>
+                    <div class="schedule-row">
+                        <label>Days:</label>
+                        <div class="day-selector">
+                            <label><input type="checkbox" value="mon" checked> Mon</label>
+                            <label><input type="checkbox" value="tue" checked> Tue</label>
+                            <label><input type="checkbox" value="wed" checked> Wed</label>
+                            <label><input type="checkbox" value="thu" checked> Thu</label>
+                            <label><input type="checkbox" value="fri" checked> Fri</label>
+                            <label><input type="checkbox" value="sat" checked> Sat</label>
+                            <label><input type="checkbox" value="sun"> Sun</label>
+                        </div>
+                    </div>
+                    <div class="schedule-row" id="next-run-row" style="display: none;">
+                        <label>Next Run:</label>
+                        <span id="next-run-time" style="color: var(--success);"></span>
+                    </div>
+                </div>
             </div>
-            <div class="table-grid" id="table-grid">
-                <div class="empty-state">
-                    <i class="fas fa-database"></i>
-                    <p>Loading tables...</p>
+
+            <!-- Tab: Tables -->
+            <div class="tab-content" id="tab-tables">
+                <div class="tab-header">
+                    <span class="card-title">Database Tables</span>
+                    <span id="tables-summary" style="color: var(--text-muted); font-size: 0.85rem;">32 tables</span>
+                </div>
+                <div class="table-grid" id="table-grid">
+                    <div class="empty-state">
+                        <i class="fas fa-database"></i>
+                        <p>Loading tables...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -805,6 +823,49 @@
             min-width: auto;
         }
         .day-selector input { width: 14px; height: 14px; accent-color: var(--primary); }
+        
+        /* Tabs Styles */
+        .tabs-card { padding: 0; }
+        .tabs-header {
+            display: flex;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-dark);
+            border-radius: 12px 12px 0 0;
+            overflow-x: auto;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 14px 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+            border-bottom: 2px solid transparent;
+            white-space: nowrap;
+        }
+        .tab-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            background: var(--bg-card);
+        }
+        .tab-content {
+            display: none;
+            padding: 16px;
+        }
+        .tab-content.active { display: block; }
+        .tab-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
     </style>
 
     <script>
@@ -812,6 +873,17 @@
         let syncStartTime = null;
         let syncInterval = null;
         let logs = [];
+
+        // Tab Switching
+        function switchTab(tabName) {
+            // Remove active from all tabs and contents
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            
+            // Add active to selected tab
+            document.querySelector(`.tab-btn[onclick="switchTab('${tabName}')"]`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
 
         // Toast Notifications
         function showToast(message, type = 'info') {
