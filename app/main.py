@@ -340,11 +340,28 @@ async def get_synced_companies():
     from .services.database_service import database_service
     try:
         await database_service.connect()
-        # Get unique company names from sync_history
-        result = await database_service.fetch_all(
-            "SELECT DISTINCT company_name FROM sync_history WHERE status = 'completed' ORDER BY company_name"
+        
+        # First try: Get from config table (Company Name value)
+        config_result = await database_service.fetch_one(
+            "SELECT value FROM config WHERE name = 'Company Name'"
         )
-        companies = [row['company_name'] for row in result if row.get('company_name')]
+        companies = []
+        if config_result and config_result.get('value'):
+            company_name = config_result.get('value')
+            if company_name and company_name != 'Unknown':
+                companies.append(company_name)
+        
+        # Also try sync_history if company_name column exists
+        try:
+            history_result = await database_service.fetch_all(
+                "SELECT DISTINCT company_name FROM sync_history WHERE status = 'completed' AND company_name IS NOT NULL AND company_name != '' ORDER BY company_name"
+            )
+            for row in history_result:
+                if row.get('company_name') and row['company_name'] not in companies:
+                    companies.append(row['company_name'])
+        except:
+            pass  # Column might not exist yet
+        
         await database_service.disconnect()
         return {"synced_companies": companies}
     except Exception as e:
