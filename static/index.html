@@ -408,6 +408,22 @@
                     <span>Loading companies from Tally...</span>
                 </div>
             </div>
+            <div class="date-range-section">
+                <div class="date-range-header">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span>Date Range (Optional)</span>
+                </div>
+                <div class="date-range-inputs">
+                    <div class="date-input">
+                        <label>From:</label>
+                        <input type="date" id="sync-from-date" value="2025-04-01">
+                    </div>
+                    <div class="date-input">
+                        <label>To:</label>
+                        <input type="date" id="sync-to-date" value="2026-03-31">
+                    </div>
+                </div>
+            </div>
             <div class="company-actions">
                 <button class="btn btn-primary" onclick="syncSelectedCompanies('full')" id="btn-sync-selected">
                     <i class="fas fa-sync"></i> Full Sync Selected
@@ -1018,6 +1034,42 @@
             max-width: 150px;
         }
         .btn-sm { padding: 4px 8px; font-size: 0.7rem; }
+        .date-range-section {
+            background: var(--bg-dark);
+            border-radius: 6px;
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        .date-range-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 10px;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .date-range-inputs {
+            display: flex;
+            gap: 12px;
+        }
+        .date-input {
+            flex: 1;
+        }
+        .date-input label {
+            display: block;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+        .date-input input {
+            width: 100%;
+            padding: 6px 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 0.8rem;
+        }
         .history-list, .backup-list, .log-viewer { max-height: 180px; overflow-y: auto; }
         .history-item, .backup-item { padding: 8px; margin-bottom: 6px; font-size: 0.75rem; }
         .history-meta, .backup-meta { font-size: 0.65rem; }
@@ -1104,6 +1156,17 @@
             if (companies.length === 0) {
                 showToast('Please select at least one company', 'error');
                 return;
+            }
+            
+            // Update date range if changed
+            const fromDate = document.getElementById('sync-from-date').value;
+            const toDate = document.getElementById('sync-to-date').value;
+            if (fromDate && toDate) {
+                await fetch(`${API_BASE}/api/config/date-range`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ from_date: fromDate, to_date: toDate })
+                });
             }
             
             // Add to queue

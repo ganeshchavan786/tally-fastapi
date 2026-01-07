@@ -305,3 +305,30 @@ async def migrate_add_company_column():
     await database_service.connect()
     result = await database_service.add_company_column_to_tables()
     return result
+
+
+@app.post("/api/config/date-range")
+async def update_date_range(request: dict):
+    """Update sync date range"""
+    from_date = request.get("from_date", "")
+    to_date = request.get("to_date", "")
+    
+    if from_date:
+        config.tally.from_date = from_date
+    if to_date:
+        config.tally.to_date = to_date
+    
+    return {
+        "status": "success",
+        "from_date": config.tally.from_date,
+        "to_date": config.tally.to_date
+    }
+
+
+@app.get("/api/config/date-range")
+async def get_date_range():
+    """Get current sync date range"""
+    return {
+        "from_date": config.tally.from_date,
+        "to_date": config.tally.to_date
+    }

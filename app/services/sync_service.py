@@ -808,6 +808,17 @@ class SyncService:
             except Exception as e:
                 logger.warning(f"Could not get company name: {e}")
             
+            # Get Last AlterID from Tally for incremental sync
+            alt_id_master = "0"
+            alt_id_transaction = "0"
+            try:
+                alter_ids = await tally_service.get_last_alter_ids()
+                if alter_ids:
+                    alt_id_master = str(alter_ids.get("master", 0))
+                    alt_id_transaction = str(alter_ids.get("transaction", 0))
+            except Exception as e:
+                logger.warning(f"Could not get AlterIDs: {e}")
+            
             # Insert config values (from_date/to_date are in tally config, not sync config)
             config_values = [
                 ("Update Timestamp", datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
@@ -816,6 +827,8 @@ class SyncService:
                 ("Period To", config.tally.to_date),
                 ("Sync Mode", config.sync.mode),
                 ("Total Rows", str(self.rows_processed)),
+                ("Last AlterID Master", alt_id_master),
+                ("Last AlterID Transaction", alt_id_transaction),
             ]
             
             for name, value in config_values:

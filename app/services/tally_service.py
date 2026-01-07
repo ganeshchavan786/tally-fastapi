@@ -327,5 +327,69 @@ class TallyService:
         return rows
 
 
+    async def get_last_alter_ids(self) -> Dict[str, int]:
+        """Get last AlterID for Master and Transaction from Tally"""
+        xml_request = '''<?xml version="1.0" encoding="UTF-16"?>
+        <ENVELOPE>
+            <HEADER>
+                <VERSION>1</VERSION>
+                <TALLYREQUEST>Export</TALLYREQUEST>
+                <TYPE>Data</TYPE>
+                <ID>GetAlterIDs</ID>
+            </HEADER>
+            <BODY>
+                <DESC>
+                    <STATICVARIABLES>
+                        <SVEXPORTFORMAT>ASCII (Comma Delimited)</SVEXPORTFORMAT>
+                    </STATICVARIABLES>
+                    <TDL>
+                        <TDLMESSAGE>
+                            <REPORT NAME="GetAlterIDs">
+                                <FORMS>GetAlterIDs</FORMS>
+                            </REPORT>
+                            <FORM NAME="GetAlterIDs">
+                                <PARTS>GetAlterIDs</PARTS>
+                            </FORM>
+                            <PART NAME="GetAlterIDs">
+                                <LINES>GetAlterIDs</LINES>
+                                <REPEAT>GetAlterIDs : MyCollection</REPEAT>
+                                <SCROLLED>Vertical</SCROLLED>
+                            </PART>
+                            <LINE NAME="GetAlterIDs">
+                                <FIELDS>FldAlterMaster,FldAlterTransaction</FIELDS>
+                            </LINE>
+                            <FIELD NAME="FldAlterMaster">
+                                <SET>$AltMstId</SET>
+                            </FIELD>
+                            <FIELD NAME="FldAlterTransaction">
+                                <SET>$AltVchId</SET>
+                            </FIELD>
+                            <COLLECTION NAME="MyCollection">
+                                <TYPE>Company</TYPE>
+                                <FILTER>FilterActiveCompany</FILTER>
+                            </COLLECTION>
+                            <SYSTEM TYPE="Formulae" NAME="FilterActiveCompany">$$IsEqual:##SVCurrentCompany:$Name</SYSTEM>
+                        </TDLMESSAGE>
+                    </TDL>
+                </DESC>
+            </BODY>
+        </ENVELOPE>'''
+        
+        try:
+            response = await self.send_xml(xml_request)
+            # Parse CSV response: "master_id,transaction_id"
+            response = response.strip().replace('"', '')
+            if response:
+                parts = response.split(',')
+                if len(parts) >= 2:
+                    master = int(parts[0]) if parts[0].isdigit() else 0
+                    transaction = int(parts[1]) if parts[1].isdigit() else 0
+                    return {"master": master, "transaction": transaction}
+            return {"master": 0, "transaction": 0}
+        except Exception as e:
+            logger.error(f"Failed to get AlterIDs: {e}")
+            return {"master": 0, "transaction": 0}
+
+
 # Global service instance
 tally_service = TallyService()

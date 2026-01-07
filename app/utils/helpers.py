@@ -10,12 +10,41 @@ from xml.etree import ElementTree as ET
 
 
 def parse_tally_date(date_str: str) -> Optional[str]:
-    """Parse Tally date format (YYYYMMDD) to ISO format (YYYY-MM-DD)"""
+    """Parse Tally date format to ISO format (YYYY-MM-DD)"""
     if not date_str or date_str == "ñ":
         return None
     try:
-        if len(date_str) == 8:
+        # Clean up the date string
+        date_str = date_str.strip()
+        
+        # Format: YYYYMMDD (e.g., 20210401)
+        if len(date_str) == 8 and date_str.isdigit():
             return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        
+        # Format: d-MMM-yy or dd-MMM-yy (e.g., 1-Apr-21, 01-Apr-21)
+        # Also handles malformed: 1-Ap-r--21
+        date_str = date_str.replace('--', '-').replace('- ', '-').replace(' -', '-')
+        
+        month_map = {
+            'jan': '01', 'feb': '02', 'mar': '03', 'apr': '04',
+            'may': '05', 'jun': '06', 'jul': '07', 'aug': '08',
+            'sep': '09', 'oct': '10', 'nov': '11', 'dec': '12'
+        }
+        
+        # Try to parse d-MMM-yy format
+        parts = date_str.split('-')
+        if len(parts) >= 3:
+            day = parts[0].zfill(2)
+            month_str = ''.join(parts[1:-1]).lower()[:3]  # Handle split month like "Ap-r"
+            year = parts[-1]
+            
+            if month_str in month_map:
+                month = month_map[month_str]
+                # Convert 2-digit year to 4-digit
+                if len(year) == 2:
+                    year = '20' + year if int(year) < 50 else '19' + year
+                return f"{year}-{month}-{day}"
+        
         return date_str
     except:
         return None
