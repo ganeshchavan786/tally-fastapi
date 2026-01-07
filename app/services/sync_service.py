@@ -34,6 +34,7 @@ class SyncService:
         self.completed_at: Optional[datetime] = None
         self.error_message: Optional[str] = None
         self._cancel_requested = False
+        self.current_company: str = ""  # For multi-company sync
     
     def get_status(self) -> Dict[str, Any]:
         """Get current sync status"""
@@ -42,6 +43,7 @@ class SyncService:
             "progress": self.progress,
             "current_table": self.current_table,
             "rows_processed": self.rows_processed,
+            "current_company": self.current_company,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "error_message": self.error_message
@@ -56,15 +58,22 @@ class SyncService:
         return False
     
     @timed
-    async def full_sync(self) -> Dict[str, Any]:
-        """Perform full data synchronization"""
+    async def full_sync(self, company: str = "") -> Dict[str, Any]:
+        """Perform full data synchronization for a specific company"""
         if self.status == SyncStatus.RUNNING:
             return {"error": "Sync already in progress"}
         
         self._reset_status()
         self.status = SyncStatus.RUNNING
         self.started_at = datetime.now()
+        self.current_company = company or config.tally.company
         sync_history_id = None
+        
+        # Set company in config for Tally requests
+        if company:
+            config.tally.company = company
+        
+        logger.info(f"Starting full sync for company: {self.current_company or 'Default'}")
         
         try:
             # Connect to database
@@ -132,7 +141,7 @@ class SyncService:
             await database_service.disconnect()
     
     @timed
-    async def incremental_sync(self) -> Dict[str, Any]:
+    async def incremental_sync(self, company: str = "") -> Dict[str, Any]:
         """Perform incremental data synchronization (only changed records)"""
         if self.status == SyncStatus.RUNNING:
             return {"error": "Sync already in progress"}
@@ -140,7 +149,14 @@ class SyncService:
         self._reset_status()
         self.status = SyncStatus.RUNNING
         self.started_at = datetime.now()
+        self.current_company = company or config.tally.company
         sync_history_id = None
+        
+        # Set company in config for Tally requests
+        if company:
+            config.tally.company = company
+        
+        logger.info(f"Starting incremental sync for company: {self.current_company or 'Default'}")
         
         try:
             # Reload config for incremental mode

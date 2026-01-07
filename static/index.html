@@ -377,6 +377,12 @@
             <span>Tally FastAPI Database Loader</span>
         </div>
         <div class="navbar-status">
+            <select class="company-switch" id="company-switch" onchange="switchCompany(this.value)">
+                <option value="">All Companies</option>
+            </select>
+            <button class="btn btn-outline btn-sm" onclick="showCompanyScreen()" title="Select Companies">
+                <i class="fas fa-building"></i>
+            </button>
             <div class="status-badge" id="tally-status">
                 <span class="dot"></span>
                 <span>Tally: Checking...</span>
@@ -388,7 +394,35 @@
         </div>
     </nav>
 
-    <div class="container">
+    <!-- Company Selection Screen -->
+    <div class="company-selection-screen" id="company-screen">
+        <div class="company-card">
+            <div class="company-header">
+                <i class="fas fa-building"></i>
+                <h2>Select Companies to Sync</h2>
+                <p>Choose one or more companies from Tally</p>
+            </div>
+            <div class="company-list" id="company-list">
+                <div class="loading-companies">
+                    <i class="fas fa-spinner fa-spin"></i>
+                    <span>Loading companies from Tally...</span>
+                </div>
+            </div>
+            <div class="company-actions">
+                <button class="btn btn-primary" onclick="syncSelectedCompanies('full')" id="btn-sync-selected">
+                    <i class="fas fa-sync"></i> Full Sync Selected
+                </button>
+                <button class="btn btn-success" onclick="syncSelectedCompanies('incremental')">
+                    <i class="fas fa-bolt"></i> Incremental Sync
+                </button>
+                <button class="btn btn-outline" onclick="skipCompanySelection()">
+                    <i class="fas fa-forward"></i> Skip to Dashboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="main-dashboard" style="display: none;">
         <!-- Stats Cards -->
         <div class="grid grid-4">
             <div class="card">
@@ -888,6 +922,102 @@
             align-items: center;
             margin-bottom: 8px;
         }
+        
+        /* Company Selection Screen */
+        .company-selection-screen {
+            min-height: calc(100vh - 50px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .company-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 1.5rem;
+            max-width: 600px;
+            width: 100%;
+            border: 1px solid var(--border);
+        }
+        .company-header {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .company-header i {
+            font-size: 2.5rem;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+        .company-header h2 {
+            font-size: 1.25rem;
+            margin: 0.5rem 0;
+        }
+        .company-header p {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+        .company-list {
+            max-height: 300px;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+        }
+        .company-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            background: var(--bg-dark);
+            border-radius: 6px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .company-item:hover {
+            background: var(--bg-card-hover);
+        }
+        .company-item.selected {
+            background: rgba(59, 130, 246, 0.2);
+            border: 1px solid var(--primary);
+        }
+        .company-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--primary);
+        }
+        .company-item .company-name {
+            flex: 1;
+            font-size: 0.85rem;
+        }
+        .company-item .company-period {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        .company-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .loading-companies {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+        }
+        .loading-companies i {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            display: block;
+        }
+        .company-switch {
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            max-width: 150px;
+        }
+        .btn-sm { padding: 4px 8px; font-size: 0.7rem; }
         .history-list, .backup-list, .log-viewer { max-height: 180px; overflow-y: auto; }
         .history-item, .backup-item { padding: 8px; margin-bottom: 6px; font-size: 0.75rem; }
         .history-meta, .backup-meta { font-size: 0.65rem; }
@@ -903,6 +1033,127 @@
         let syncStartTime = null;
         let syncInterval = null;
         let logs = [];
+        let openCompanies = [];
+
+        // ============== Company Selection ==============
+        async function loadOpenCompanies() {
+            try {
+                const res = await fetch(`${API_BASE}/api/companies`);
+                const data = await res.json();
+                openCompanies = data.companies || [];
+                renderCompanyList();
+            } catch (e) {
+                document.getElementById('company-list').innerHTML = `
+                    <div class="loading-companies" style="color: var(--danger);">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Failed to load companies. Is Tally running?</span>
+                    </div>
+                `;
+            }
+        }
+
+        function renderCompanyList() {
+            const container = document.getElementById('company-list');
+            if (openCompanies.length === 0) {
+                container.innerHTML = `
+                    <div class="loading-companies">
+                        <i class="fas fa-building"></i>
+                        <span>No companies open in Tally</span>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = openCompanies.map((c, i) => `
+                <div class="company-item" onclick="toggleCompanySelection(${i})">
+                    <input type="checkbox" id="company-${i}" ${i === 0 ? 'checked' : ''}>
+                    <div class="company-name">${c.name}</div>
+                    <div class="company-period">${c.books_from || ''} - ${c.books_to || ''}</div>
+                </div>
+            `).join('');
+            
+            // Select first company by default
+            if (openCompanies.length > 0) {
+                document.querySelector('.company-item').classList.add('selected');
+            }
+            
+            // Update company switch dropdown
+            updateCompanySwitch();
+        }
+
+        function toggleCompanySelection(index) {
+            const checkbox = document.getElementById(`company-${index}`);
+            checkbox.checked = !checkbox.checked;
+            const item = checkbox.closest('.company-item');
+            item.classList.toggle('selected', checkbox.checked);
+        }
+
+        function getSelectedCompanies() {
+            const selected = [];
+            openCompanies.forEach((c, i) => {
+                const checkbox = document.getElementById(`company-${i}`);
+                if (checkbox && checkbox.checked) {
+                    selected.push(c.name);
+                }
+            });
+            return selected;
+        }
+
+        async function syncSelectedCompanies(syncType) {
+            const companies = getSelectedCompanies();
+            if (companies.length === 0) {
+                showToast('Please select at least one company', 'error');
+                return;
+            }
+            
+            // Add to queue
+            await fetch(`${API_BASE}/api/sync/queue`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ companies, sync_type: syncType })
+            });
+            
+            // Start queue processing
+            await fetch(`${API_BASE}/api/sync/queue/start`, { method: 'POST' });
+            
+            // Show dashboard
+            showDashboard();
+            showToast(`Started ${syncType} sync for ${companies.length} company(s)`, 'success');
+        }
+
+        function skipCompanySelection() {
+            showDashboard();
+        }
+
+        function showDashboard() {
+            document.getElementById('company-screen').style.display = 'none';
+            document.getElementById('main-dashboard').style.display = 'block';
+            refreshAll();
+        }
+
+        function showCompanyScreen() {
+            document.getElementById('company-screen').style.display = 'flex';
+            document.getElementById('main-dashboard').style.display = 'none';
+            loadOpenCompanies();
+        }
+
+        let currentCompany = '';
+        
+        function updateCompanySwitch() {
+            const select = document.getElementById('company-switch');
+            select.innerHTML = '<option value="">All Companies</option>';
+            openCompanies.forEach(c => {
+                select.innerHTML += `<option value="${c.name}">${c.name}</option>`;
+            });
+            select.value = currentCompany;
+        }
+
+        function switchCompany(companyName) {
+            currentCompany = companyName;
+            // Refresh data for selected company
+            fetchTableCounts();
+            addLog('INFO', `Switched to: ${companyName || 'All Companies'}`);
+        }
 
         // Tab Switching
         function switchTab(tabName) {
@@ -1396,15 +1647,9 @@
             }
         }
 
-        // Initial Load
+        // Initial Load - Show company selection first
+        loadOpenCompanies();
         fetchHealth();
-        fetchSyncStatus();
-        fetchTableCounts();
-        fetchSyncHistory();
-        fetchBackups();
-        fetchSchedule();
-        checkIncompleteSync();
-        addLog('INFO', 'Dashboard loaded');
 
         // Auto-refresh
         setInterval(fetchHealth, 10000);

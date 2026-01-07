@@ -248,3 +248,60 @@ async def check_incomplete_sync():
 async def dismiss_incomplete_sync():
     """Dismiss incomplete sync warning"""
     return sync_svc.dismiss_incomplete_sync()
+
+
+# ============== Multi-Company API ==============
+from .services.tally_service import tally_service
+from .services.sync_queue_service import sync_queue_service
+
+@app.get("/api/companies")
+async def get_open_companies():
+    """Get list of all open companies in Tally"""
+    companies = await tally_service.get_open_companies()
+    return {"companies": companies, "count": len(companies)}
+
+
+@app.get("/api/sync/queue")
+async def get_sync_queue_status():
+    """Get sync queue status"""
+    return sync_queue_service.get_status()
+
+
+@app.post("/api/sync/queue")
+async def add_to_sync_queue(request: dict):
+    """Add companies to sync queue"""
+    companies = request.get("companies", [])
+    sync_type = request.get("sync_type", "full")
+    
+    if not companies:
+        return {"status": "error", "message": "No companies provided"}
+    
+    result = sync_queue_service.add_companies(companies, sync_type)
+    return result
+
+
+@app.post("/api/sync/queue/start")
+async def start_sync_queue():
+    """Start processing sync queue"""
+    return await sync_queue_service.start_processing()
+
+
+@app.post("/api/sync/queue/cancel")
+async def cancel_sync_queue():
+    """Cancel sync queue processing"""
+    return sync_queue_service.cancel_queue()
+
+
+@app.post("/api/sync/queue/clear")
+async def clear_sync_queue():
+    """Clear sync queue"""
+    return sync_queue_service.clear_queue()
+
+
+@app.post("/api/db/migrate/company")
+async def migrate_add_company_column():
+    """Add _company column to all tables for multi-company support"""
+    from .services.database_service import database_service
+    await database_service.connect()
+    result = await database_service.add_company_column_to_tables()
+    return result

@@ -99,6 +99,93 @@ class TallyService:
                 "error": str(e)
             }
     
+    async def get_open_companies(self) -> List[Dict[str, Any]]:
+        """Get list of all open companies in Tally"""
+        xml_request = '''<?xml version="1.0" encoding="UTF-16"?>
+        <ENVELOPE>
+            <HEADER>
+                <VERSION>1</VERSION>
+                <TALLYREQUEST>Export</TALLYREQUEST>
+                <TYPE>Data</TYPE>
+                <ID>ListOfCompanies</ID>
+            </HEADER>
+            <BODY>
+                <DESC>
+                    <TDL>
+                        <TDLMESSAGE>
+                            <REPORT NAME="ListOfCompanies">
+                                <FORMS>ListOfCompanies</FORMS>
+                            </REPORT>
+                            <FORM NAME="ListOfCompanies">
+                                <PARTS>ListOfCompanies</PARTS>
+                            </FORM>
+                            <PART NAME="ListOfCompanies">
+                                <LINES>ListOfCompanies</LINES>
+                                <REPEAT>ListOfCompanies : Company</REPEAT>
+                                <SCROLLED>Vertical</SCROLLED>
+                            </PART>
+                            <LINE NAME="ListOfCompanies">
+                                <FIELDS>FldCompanyName,FldCompanyNumber,FldBooksFrom,FldBooksTo</FIELDS>
+                            </LINE>
+                            <FIELD NAME="FldCompanyName">
+                                <SET>$Name</SET>
+                            </FIELD>
+                            <FIELD NAME="FldCompanyNumber">
+                                <SET>$CompanyNumber</SET>
+                            </FIELD>
+                            <FIELD NAME="FldBooksFrom">
+                                <SET>$BooksFrom</SET>
+                            </FIELD>
+                            <FIELD NAME="FldBooksTo">
+                                <SET>$LastVoucherDate</SET>
+                            </FIELD>
+                        </TDLMESSAGE>
+                    </TDL>
+                </DESC>
+            </BODY>
+        </ENVELOPE>'''
+        
+        try:
+            response = await self.send_xml(xml_request)
+            return self._parse_company_list(response)
+        except Exception as e:
+            logger.error(f"Failed to get open companies: {e}")
+            return []
+    
+    def _parse_company_list(self, xml_response: str) -> List[Dict[str, Any]]:
+        """Parse company list from XML response"""
+        companies = []
+        try:
+            # Remove BOM if present
+            if xml_response.startswith('\ufeff'):
+                xml_response = xml_response[1:]
+            
+            root = ET.fromstring(xml_response)
+            
+            # Find all company entries
+            current_company = {}
+            for elem in root.iter():
+                if elem.tag == "FLDCOMPANYNAME" and elem.text:
+                    if current_company:
+                        companies.append(current_company)
+                    current_company = {"name": elem.text, "number": "", "books_from": "", "books_to": ""}
+                elif elem.tag == "FLDCOMPANYNUMBER" and current_company:
+                    current_company["number"] = elem.text or ""
+                elif elem.tag == "FLDBOOKSFROM" and current_company:
+                    current_company["books_from"] = parse_tally_date(elem.text) or ""
+                elif elem.tag == "FLDBOOKSTO" and current_company:
+                    current_company["books_to"] = parse_tally_date(elem.text) or ""
+            
+            # Add last company
+            if current_company and current_company.get("name"):
+                companies.append(current_company)
+            
+            logger.info(f"Found {len(companies)} open companies in Tally")
+            return companies
+        except ET.ParseError as e:
+            logger.error(f"XML parse error: {e}")
+            return []
+    
     async def get_company_info(self) -> Dict[str, Any]:
         """Get current company information from Tally"""
         xml_request = '''<?xml version="1.0" encoding="UTF-16"?>

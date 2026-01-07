@@ -590,5 +590,58 @@ CREATE INDEX IF NOT EXISTS idx_mst_stock_item_parent ON mst_stock_item(parent);
 '''
 
 
+    async def add_company_column_to_tables(self) -> Dict[str, Any]:
+        """Add _company column to all tables for multi-company support"""
+        conn = await self._get_connection()
+        
+        # Get list of all tables
+        tables_to_update = [
+            "mst_group", "mst_ledger", "mst_vouchertype", "mst_currency",
+            "mst_stock_group", "mst_stock_category", "mst_stock_item", "mst_godown",
+            "mst_unit", "mst_cost_category", "mst_cost_centre", "mst_employee",
+            "mst_attendance_type", "mst_gst_effective_rate",
+            "trn_voucher", "trn_accounting", "trn_inventory", "trn_cost_centre",
+            "trn_bill", "trn_bank", "trn_batch", "trn_attendance"
+        ]
+        
+        updated_tables = []
+        skipped_tables = []
+        
+        for table in tables_to_update:
+            try:
+                # Check if column already exists
+                cursor = await conn.execute(f"PRAGMA table_info({table})")
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+                
+                if "_company" not in column_names:
+                    # Add _company column
+                    await conn.execute(f"ALTER TABLE {table} ADD COLUMN _company VARCHAR(256) DEFAULT ''")
+                    updated_tables.append(table)
+                    logger.info(f"Added _company column to {table}")
+                else:
+                    skipped_tables.append(table)
+            except Exception as e:
+                logger.warning(f"Could not update table {table}: {e}")
+        
+        await conn.commit()
+        
+        # Create index on _company for faster queries
+        for table in updated_tables:
+            try:
+                await conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_company ON {table}(_company)")
+            except:
+                pass
+        
+        await conn.commit()
+        
+        return {
+            "status": "success",
+            "updated_tables": updated_tables,
+            "skipped_tables": skipped_tables,
+            "message": f"Updated {len(updated_tables)} tables, skipped {len(skipped_tables)}"
+        }
+
+
 # Global service instance
 database_service = DatabaseService()
