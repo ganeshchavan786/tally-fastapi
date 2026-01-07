@@ -4,7 +4,9 @@ Orchestrates data synchronization between Tally and SQLite
 """
 
 import asyncio
+import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..config import config
@@ -15,6 +17,9 @@ from ..utils.helpers import parse_tally_date, parse_tally_amount, parse_tally_bo
 from .tally_service import tally_service
 from .database_service import database_service
 from .xml_builder import xml_builder
+
+# Sync state file for crash recovery
+SYNC_STATE_FILE = Path("sync_state.json")
 
 
 class SyncService:
@@ -59,6 +64,7 @@ class SyncService:
         self._reset_status()
         self.status = SyncStatus.RUNNING
         self.started_at = datetime.now()
+        sync_history_id = None
         
         try:
             # Connect to database
@@ -68,29 +74,46 @@ class SyncService:
             logger.info("Creating database tables...")
             await database_service.create_tables()
             
+            # Save sync history - started
+            sync_history_id = await self._save_sync_history("full", "running")
+            
+            # Save sync state for crash recovery
+            self._save_sync_state("full", "initializing", 0)
+            
             # Truncate all tables for full sync
             logger.info("Truncating existing data...")
             await database_service.truncate_all_tables()
             
             # Sync master data
             logger.info("Syncing master data...")
+            self._save_sync_state("full", "master_data", self.rows_processed)
             await self._sync_master_data()
             
             if self._cancel_requested:
                 self.status = SyncStatus.CANCELLED
+                await self._update_sync_history(sync_history_id, "cancelled")
                 return self.get_status()
             
             # Sync transaction data
             logger.info("Syncing transaction data...")
+            self._save_sync_state("full", "transaction_data", self.rows_processed)
             await self._sync_transaction_data()
             
             if self._cancel_requested:
                 self.status = SyncStatus.CANCELLED
+                await self._update_sync_history(sync_history_id, "cancelled")
+                self._clear_sync_state()
                 return self.get_status()
             
             self.status = SyncStatus.COMPLETED
             self.completed_at = datetime.now()
             self.progress = 100
+            
+            # Update sync history - completed
+            await self._update_sync_history(sync_history_id, "completed")
+            
+            # Clear sync state on success
+            self._clear_sync_state()
             
             logger.info(f"Full sync completed. Total rows: {self.rows_processed}")
             return self.get_status()
@@ -98,6 +121,8 @@ class SyncService:
         except Exception as e:
             self.status = SyncStatus.FAILED
             self.error_message = str(e)
+            if sync_history_id:
+                await self._update_sync_history(sync_history_id, "failed", str(e))
             logger.error(f"Sync failed: {e}")
             return self.get_status()
         finally:
@@ -112,6 +137,7 @@ class SyncService:
         self._reset_status()
         self.status = SyncStatus.RUNNING
         self.started_at = datetime.now()
+        sync_history_id = None
         
         try:
             # Reload config for incremental mode
@@ -124,6 +150,9 @@ class SyncService:
             logger.info("Creating database tables (incremental schema)...")
             await database_service.create_tables(incremental=True)
             
+            # Save sync history - started
+            sync_history_id = await self._save_sync_history("incremental", "running")
+            
             # Get last sync alterid from config table
             last_alterid = await self._get_last_alterid()
             logger.info(f"Last sync AlterID: {last_alterid}")
@@ -134,6 +163,7 @@ class SyncService:
             
             if self._cancel_requested:
                 self.status = SyncStatus.CANCELLED
+                await self._update_sync_history(sync_history_id, "cancelled")
                 return self.get_status()
             
             # Sync transaction data with alterid filter
@@ -142,6 +172,7 @@ class SyncService:
             
             if self._cancel_requested:
                 self.status = SyncStatus.CANCELLED
+                await self._update_sync_history(sync_history_id, "cancelled")
                 return self.get_status()
             
             # Update last alterid in config
@@ -151,12 +182,17 @@ class SyncService:
             self.completed_at = datetime.now()
             self.progress = 100
             
+            # Update sync history - completed
+            await self._update_sync_history(sync_history_id, "completed")
+            
             logger.info(f"Incremental sync completed. Total rows: {self.rows_processed}")
             return self.get_status()
             
         except Exception as e:
             self.status = SyncStatus.FAILED
             self.error_message = str(e)
+            if sync_history_id:
+                await self._update_sync_history(sync_history_id, "failed", str(e))
             logger.error(f"Incremental sync failed: {e}")
             return self.get_status()
         finally:
@@ -637,6 +673,102 @@ class SyncService:
         self.completed_at = None
         self.error_message = None
         self._cancel_requested = False
+    
+    async def _save_sync_history(self, sync_type: str, status: str) -> int:
+        """Save sync history record and return ID"""
+        try:
+            query = """
+                INSERT INTO sync_history (sync_type, status, started_at, rows_processed)
+                VALUES (?, ?, ?, 0)
+            """
+            await database_service.execute(query, (sync_type, status, self.started_at.isoformat()))
+            
+            # Get last inserted ID
+            result = await database_service.fetch_one("SELECT last_insert_rowid() as id")
+            return result.get("id", 0) if result else 0
+        except Exception as e:
+            logger.warning(f"Failed to save sync history: {e}")
+            return 0
+    
+    async def _update_sync_history(self, history_id: int, status: str, error_message: str = None) -> None:
+        """Update sync history record"""
+        if not history_id:
+            return
+        try:
+            completed_at = datetime.now()
+            duration = int((completed_at - self.started_at).total_seconds()) if self.started_at else 0
+            
+            query = """
+                UPDATE sync_history 
+                SET status = ?, completed_at = ?, rows_processed = ?, 
+                    duration_seconds = ?, error_message = ?
+                WHERE id = ?
+            """
+            await database_service.execute(query, (
+                status, completed_at.isoformat(), self.rows_processed,
+                duration, error_message, history_id
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to update sync history: {e}")
+    
+    async def get_sync_history(self, limit: int = 50) -> List[Dict]:
+        """Get sync history records"""
+        try:
+            await database_service.connect()
+            query = """
+                SELECT id, sync_type, status, started_at, completed_at, 
+                       rows_processed, duration_seconds, error_message
+                FROM sync_history 
+                ORDER BY started_at DESC 
+                LIMIT ?
+            """
+            return await database_service.fetch_all(query, (limit,))
+        except Exception as e:
+            logger.error(f"Failed to get sync history: {e}")
+            return []
+    
+    # ============== Crash Recovery Methods ==============
+    
+    def _save_sync_state(self, sync_type: str, table: str = "", rows: int = 0) -> None:
+        """Save current sync state to file for crash recovery"""
+        state = {
+            "sync_type": sync_type,
+            "status": "running",
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "current_table": table,
+            "rows_processed": rows,
+            "last_updated": datetime.now().isoformat()
+        }
+        try:
+            with open(SYNC_STATE_FILE, "w") as f:
+                json.dump(state, f, indent=2)
+        except Exception as e:
+            logger.warning(f"Failed to save sync state: {e}")
+    
+    def _clear_sync_state(self) -> None:
+        """Clear sync state file after successful completion"""
+        try:
+            if SYNC_STATE_FILE.exists():
+                SYNC_STATE_FILE.unlink()
+        except Exception as e:
+            logger.warning(f"Failed to clear sync state: {e}")
+    
+    def get_incomplete_sync(self) -> Optional[Dict]:
+        """Check for incomplete sync from previous crash"""
+        try:
+            if SYNC_STATE_FILE.exists():
+                with open(SYNC_STATE_FILE, "r") as f:
+                    state = json.load(f)
+                if state.get("status") == "running":
+                    return state
+        except Exception as e:
+            logger.warning(f"Failed to read sync state: {e}")
+        return None
+    
+    def dismiss_incomplete_sync(self) -> Dict:
+        """Dismiss incomplete sync warning"""
+        self._clear_sync_state()
+        return {"status": "dismissed", "message": "Incomplete sync warning dismissed"}
 
 
 # Global service instance

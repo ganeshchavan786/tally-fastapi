@@ -46,3 +46,10 @@ async def cancel_sync():
     if sync_service.cancel():
         return {"status": "cancelled", "message": "Sync cancellation requested"}
     return {"status": "not_running", "message": "No sync is currently running"}
+
+
+@router.get("/history")
+async def get_sync_history(limit: int = 50):
+    """Get sync history records"""
+    history = await sync_service.get_sync_history(limit)
+    return {"history": history, "count": len(history)}

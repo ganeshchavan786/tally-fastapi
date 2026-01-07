@@ -382,3 +382,33 @@ create table trn_attendance
  time_value decimal(17,2) not null default 0,
  type_value decimal(17,2) not null default 0
 );
+
+-- Sync History Table
+create table sync_history
+(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ sync_type varchar(20) not null default 'full',
+ status varchar(20) not null default 'started',
+ started_at datetime not null,
+ completed_at datetime,
+ rows_processed int not null default 0,
+ duration_seconds int not null default 0,
+ error_message nvarchar(1024),
+ created_at datetime default CURRENT_TIMESTAMP
+);
+
+-- Application Logs Table
+create table app_logs
+(
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ timestamp datetime not null default CURRENT_TIMESTAMP,
+ level varchar(10) not null default 'INFO',
+ module varchar(100) not null default '',
+ message nvarchar(2048) not null default '',
+ created_at datetime default CURRENT_TIMESTAMP
+);
+
+-- Indexes for logs
+CREATE INDEX idx_sync_history_started ON sync_history(started_at);
+CREATE INDEX idx_app_logs_timestamp ON app_logs(timestamp);
+CREATE INDEX idx_app_logs_level ON app_logs(level);

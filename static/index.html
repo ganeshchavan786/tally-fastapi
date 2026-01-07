@@ -493,6 +493,84 @@
             </div>
         </div>
 
+        <!-- Sync History -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Sync History</span>
+                <button class="btn btn-outline" onclick="fetchSyncHistory()" style="padding: 6px 12px; font-size: 0.8rem;">
+                    <i class="fas fa-refresh"></i> Refresh
+                </button>
+            </div>
+            <div class="history-list" id="sync-history">
+                <div class="empty-state">
+                    <i class="fas fa-history"></i>
+                    <p>No sync history yet</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Backup Management -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Backup Management</span>
+                <button class="btn btn-outline" onclick="createManualBackup()" style="padding: 6px 12px; font-size: 0.8rem;">
+                    <i class="fas fa-plus"></i> Create Backup
+                </button>
+            </div>
+            <div class="backup-list" id="backup-list">
+                <div class="empty-state">
+                    <i class="fas fa-archive"></i>
+                    <p>No backups yet</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Settings -->
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Auto Sync Schedule</span>
+                <span class="status-badge" id="schedule-status-badge">
+                    <span class="dot"></span>
+                    <span id="schedule-status-text">Disabled</span>
+                </span>
+            </div>
+            <div class="schedule-form">
+                <div class="schedule-row">
+                    <label class="schedule-toggle">
+                        <input type="checkbox" id="schedule-enabled" onchange="updateSchedule()">
+                        <span>Enable Auto Sync</span>
+                    </label>
+                </div>
+                <div class="schedule-row">
+                    <label>Sync Type:</label>
+                    <select id="schedule-type" onchange="updateSchedule()">
+                        <option value="incremental">Incremental (Recommended)</option>
+                        <option value="full">Full Sync</option>
+                    </select>
+                </div>
+                <div class="schedule-row">
+                    <label>Time:</label>
+                    <input type="time" id="schedule-time" value="06:00" onchange="updateSchedule()">
+                </div>
+                <div class="schedule-row">
+                    <label>Days:</label>
+                    <div class="day-selector">
+                        <label><input type="checkbox" value="mon" checked> Mon</label>
+                        <label><input type="checkbox" value="tue" checked> Tue</label>
+                        <label><input type="checkbox" value="wed" checked> Wed</label>
+                        <label><input type="checkbox" value="thu" checked> Thu</label>
+                        <label><input type="checkbox" value="fri" checked> Fri</label>
+                        <label><input type="checkbox" value="sat" checked> Sat</label>
+                        <label><input type="checkbox" value="sun"> Sun</label>
+                    </div>
+                </div>
+                <div class="schedule-row" id="next-run-row" style="display: none;">
+                    <label>Next Run:</label>
+                    <span id="next-run-time" style="color: var(--success);"></span>
+                </div>
+            </div>
+        </div>
+
         <!-- Table Counts -->
         <div class="card">
             <div class="card-header">
@@ -510,6 +588,38 @@
 
     <!-- Toast Container -->
     <div class="toast-container" id="toast-container"></div>
+
+    <!-- Incomplete Sync Warning Modal -->
+    <div class="modal-overlay" id="incomplete-modal" style="display: none;">
+        <div class="modal">
+            <div class="modal-header">
+                <i class="fas fa-exclamation-circle" style="color: var(--danger); font-size: 2rem;"></i>
+                <h3>⚠️ Incomplete Sync Detected</h3>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--warning); font-weight: 600; margin-bottom: 10px;">
+                    मागील sync अपूर्ण राहिला आहे!
+                </p>
+                <p style="margin-bottom: 10px;">
+                    App बंद पडल्यामुळे किंवा crash झाल्यामुळे sync पूर्ण झाला नाही.
+                </p>
+                <div id="incomplete-details" style="background: var(--bg-dark); padding: 12px; border-radius: 8px; margin-bottom: 15px; font-size: 0.85rem;">
+                </div>
+                <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                    <i class="fas fa-info-circle"></i> 
+                    Data inconsistent असू शकतो. Fresh Full Sync करणे recommended आहे.
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="dismissIncomplete()">
+                    <i class="fas fa-times"></i> Dismiss
+                </button>
+                <button class="btn btn-primary" onclick="dismissIncomplete(); startFullSync();">
+                    <i class="fas fa-sync"></i> Run Full Sync
+                </button>
+            </div>
+        </div>
+    </div>
 
     <!-- Confirmation Modal -->
     <div class="modal-overlay" id="confirm-modal" style="display: none;">
@@ -588,6 +698,113 @@
             height: 18px;
             accent-color: var(--primary);
         }
+        .history-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid var(--border);
+        }
+        .history-item:hover { background: var(--bg-card-hover); }
+        .history-info { flex: 1; }
+        .history-type {
+            font-weight: 600;
+            text-transform: capitalize;
+            margin-bottom: 4px;
+        }
+        .history-type.full { color: var(--primary); }
+        .history-type.incremental { color: var(--success); }
+        .history-meta {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .history-status {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .history-status.completed { background: rgba(16, 185, 129, 0.2); color: var(--success); }
+        .history-status.failed { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .history-status.running { background: rgba(59, 130, 246, 0.2); color: var(--primary); }
+        .history-status.cancelled { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+        
+        /* Backup List Styles */
+        .backup-list { max-height: 250px; overflow-y: auto; }
+        .backup-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: var(--bg-dark);
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border: 1px solid var(--border);
+        }
+        .backup-item:hover { background: var(--bg-card-hover); }
+        .backup-info { flex: 1; }
+        .backup-name { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+        .backup-meta { font-size: 0.8rem; color: var(--text-muted); }
+        .backup-actions { display: flex; gap: 8px; }
+        .btn-restore {
+            padding: 6px 12px;
+            font-size: 0.75rem;
+            background: var(--success);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .btn-restore:hover { opacity: 0.9; }
+        
+        /* Schedule Form Styles */
+        .schedule-form { padding: 10px 0; }
+        .schedule-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        .schedule-row label { min-width: 80px; color: var(--text-secondary); }
+        .schedule-row select, .schedule-row input[type="time"] {
+            padding: 8px 12px;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 0.9rem;
+        }
+        .schedule-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+        .schedule-toggle input { width: 18px; height: 18px; accent-color: var(--primary); }
+        .day-selector {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .day-selector label {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 4px 8px;
+            background: var(--bg-dark);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            min-width: auto;
+        }
+        .day-selector input { width: 14px; height: 14px; accent-color: var(--primary); }
     </style>
 
     <script>
@@ -839,18 +1056,252 @@
             showToast('Logs cleared', 'info');
         }
 
+        // Fetch Sync History
+        async function fetchSyncHistory() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sync/history?limit=20`);
+                const data = await res.json();
+                
+                const container = document.getElementById('sync-history');
+                if (!data.history || data.history.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-history"></i><p>No sync history yet</p></div>';
+                    return;
+                }
+                
+                container.innerHTML = data.history.map(item => {
+                    const startDate = new Date(item.started_at);
+                    const dateStr = startDate.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+                    const timeStr = startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+                    
+                    return `
+                        <div class="history-item">
+                            <div class="history-info">
+                                <div class="history-type ${item.sync_type}">${item.sync_type} Sync</div>
+                                <div class="history-meta">
+                                    <i class="fas fa-calendar"></i> ${dateStr} ${timeStr} • 
+                                    <i class="fas fa-database"></i> ${item.rows_processed.toLocaleString()} rows • 
+                                    <i class="fas fa-clock"></i> ${item.duration_seconds}s
+                                </div>
+                            </div>
+                            <span class="history-status ${item.status}">${item.status}</span>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Error fetching sync history:', e);
+            }
+        }
+
+        // Fetch Backups
+        async function fetchBackups() {
+            try {
+                const res = await fetch(`${API_BASE}/api/backups`);
+                const data = await res.json();
+                
+                const container = document.getElementById('backup-list');
+                if (!data.backups || data.backups.length === 0) {
+                    container.innerHTML = '<div class="empty-state"><i class="fas fa-archive"></i><p>No backups yet</p></div>';
+                    return;
+                }
+                
+                container.innerHTML = data.backups.map(backup => {
+                    const date = backup.created_at ? new Date(backup.created_at) : null;
+                    const dateStr = date ? date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+                    const timeStr = date ? date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : '';
+                    
+                    return `
+                        <div class="backup-item">
+                            <div class="backup-info">
+                                <div class="backup-name"><i class="fas fa-database"></i> ${backup.filename}</div>
+                                <div class="backup-meta">
+                                    <i class="fas fa-calendar"></i> ${dateStr} ${timeStr} • 
+                                    <i class="fas fa-hdd"></i> ${backup.size_mb} MB
+                                </div>
+                            </div>
+                            <div class="backup-actions">
+                                <button class="btn-restore" onclick="restoreBackup('${backup.filename}')">
+                                    <i class="fas fa-undo"></i> Restore
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            } catch (e) {
+                console.error('Error fetching backups:', e);
+            }
+        }
+
+        // Create Manual Backup
+        async function createManualBackup() {
+            try {
+                showToast('Creating backup...', 'info');
+                const res = await fetch(`${API_BASE}/api/backup`, { method: 'POST' });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    showToast('Backup created successfully', 'success');
+                    addLog('INFO', 'Manual backup created');
+                    fetchBackups();
+                } else {
+                    showToast(data.message || 'Backup failed', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to create backup', 'error');
+            }
+        }
+
+        // Restore Backup
+        async function restoreBackup(filename) {
+            if (!confirm(`⚠️ Warning!\n\nRestore करताना current database replace होईल.\n\nBackup restore करायचा आहे का?\n\nFile: ${filename}`)) {
+                return;
+            }
+            
+            try {
+                showToast('Restoring backup...', 'info');
+                const res = await fetch(`${API_BASE}/api/backup/restore`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename })
+                });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    showToast('Database restored successfully', 'success');
+                    addLog('INFO', `Database restored from ${filename}`);
+                    fetchTableCounts();
+                    fetchSyncHistory();
+                } else {
+                    showToast(data.message || 'Restore failed', 'error');
+                }
+            } catch (e) {
+                showToast('Failed to restore backup', 'error');
+            }
+        }
+
+        // Fetch Schedule Status
+        async function fetchSchedule() {
+            try {
+                const res = await fetch(`${API_BASE}/api/schedule`);
+                const data = await res.json();
+                
+                const config = data.schedule_config || {};
+                document.getElementById('schedule-enabled').checked = config.enabled || false;
+                document.getElementById('schedule-type').value = config.sync_type || 'incremental';
+                document.getElementById('schedule-time').value = config.time || '06:00';
+                
+                // Update days checkboxes
+                const days = config.days || [];
+                document.querySelectorAll('.day-selector input').forEach(cb => {
+                    cb.checked = days.includes(cb.value);
+                });
+                
+                // Update status badge
+                const badge = document.getElementById('schedule-status-badge');
+                const statusText = document.getElementById('schedule-status-text');
+                if (config.enabled) {
+                    badge.className = 'status-badge online';
+                    statusText.textContent = 'Enabled';
+                } else {
+                    badge.className = 'status-badge offline';
+                    statusText.textContent = 'Disabled';
+                }
+                
+                // Show next run time
+                const nextRunRow = document.getElementById('next-run-row');
+                if (data.jobs && data.jobs.length > 0 && data.jobs[0].next_run) {
+                    const nextRun = new Date(data.jobs[0].next_run);
+                    document.getElementById('next-run-time').textContent = nextRun.toLocaleString('en-IN');
+                    nextRunRow.style.display = 'flex';
+                } else {
+                    nextRunRow.style.display = 'none';
+                }
+            } catch (e) {
+                console.error('Error fetching schedule:', e);
+            }
+        }
+
+        // Update Schedule
+        async function updateSchedule() {
+            const enabled = document.getElementById('schedule-enabled').checked;
+            const sync_type = document.getElementById('schedule-type').value;
+            const time = document.getElementById('schedule-time').value;
+            
+            const days = [];
+            document.querySelectorAll('.day-selector input:checked').forEach(cb => {
+                days.push(cb.value);
+            });
+            
+            try {
+                const res = await fetch(`${API_BASE}/api/schedule`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled, sync_type, time, days })
+                });
+                const data = await res.json();
+                
+                if (data.status === 'success') {
+                    showToast(enabled ? 'Schedule enabled' : 'Schedule disabled', 'success');
+                    addLog('INFO', `Schedule ${enabled ? 'enabled' : 'disabled'}: ${time} - ${sync_type}`);
+                    fetchSchedule();
+                }
+            } catch (e) {
+                showToast('Failed to update schedule', 'error');
+            }
+        }
+
         // Refresh All
         function refreshAll() {
             fetchHealth();
             fetchSyncStatus();
             fetchTableCounts();
+            fetchSyncHistory();
+            fetchBackups();
+            fetchSchedule();
             showToast('Data refreshed', 'info');
+        }
+
+        // Check for Incomplete Sync (Crash Recovery)
+        async function checkIncompleteSync() {
+            try {
+                const res = await fetch(`${API_BASE}/api/sync/incomplete`);
+                const data = await res.json();
+                
+                if (data.has_incomplete) {
+                    const state = data.sync_state;
+                    const startTime = state.started_at ? new Date(state.started_at).toLocaleString('en-IN') : 'Unknown';
+                    
+                    document.getElementById('incomplete-details').innerHTML = `
+                        <p><strong>Sync Type:</strong> ${state.sync_type}</p>
+                        <p><strong>Started:</strong> ${startTime}</p>
+                        <p><strong>Last Table:</strong> ${state.current_table || 'N/A'}</p>
+                        <p><strong>Rows Processed:</strong> ${state.rows_processed || 0}</p>
+                    `;
+                    document.getElementById('incomplete-modal').style.display = 'flex';
+                    addLog('WARNING', 'Incomplete sync detected from previous session');
+                }
+            } catch (e) {
+                console.error('Error checking incomplete sync:', e);
+            }
+        }
+
+        // Dismiss Incomplete Sync Warning
+        async function dismissIncomplete() {
+            document.getElementById('incomplete-modal').style.display = 'none';
+            try {
+                await fetch(`${API_BASE}/api/sync/incomplete/dismiss`, { method: 'POST' });
+            } catch (e) {
+                console.error('Error dismissing incomplete sync:', e);
+            }
         }
 
         // Initial Load
         fetchHealth();
         fetchSyncStatus();
         fetchTableCounts();
+        fetchSyncHistory();
+        fetchBackups();
+        fetchSchedule();
+        checkIncompleteSync();
         addLog('INFO', 'Dashboard loaded');
 
         // Auto-refresh
