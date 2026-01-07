@@ -19,36 +19,54 @@ class DatabaseService:
     def __init__(self):
         self.db_path = config.database.path
         self._connection: Optional[aiosqlite.Connection] = None
+        self._initialized = False
     
-    async def connect(self) -> None:
-        """Open database connection"""
-        try:
+    async def _get_connection(self) -> aiosqlite.Connection:
+        """Get or create database connection"""
+        if self._connection is None:
             # Create directory if not exists
             db_file = Path(self.db_path)
             db_file.parent.mkdir(parents=True, exist_ok=True)
             
-            self._connection = await aiosqlite.connect(self.db_path)
+            # Use WAL mode and timeout to prevent database locked errors
+            self._connection = await aiosqlite.connect(
+                self.db_path,
+                timeout=30.0
+            )
             self._connection.row_factory = aiosqlite.Row
+            
+            # Enable WAL mode for better concurrency (only once)
+            if not self._initialized:
+                await self._connection.execute("PRAGMA journal_mode=WAL")
+                await self._connection.execute("PRAGMA busy_timeout=30000")
+                await self._connection.execute("PRAGMA synchronous=NORMAL")
+                self._initialized = True
+            
             logger.info(f"Connected to SQLite database: {self.db_path}")
-        except Exception as e:
-            logger.error(f"Database connection failed: {e}")
-            raise
+        
+        return self._connection
+    
+    async def connect(self) -> None:
+        """Open database connection"""
+        await self._get_connection()
     
     async def disconnect(self) -> None:
         """Close database connection"""
         if self._connection:
-            await self._connection.close()
+            try:
+                await self._connection.close()
+            except:
+                pass
             self._connection = None
             logger.info("Database connection closed")
     
     async def execute(self, query: str, params: Tuple = ()) -> int:
         """Execute a query and return affected rows"""
-        if not self._connection:
-            await self.connect()
+        conn = await self._get_connection()
         
         try:
-            cursor = await self._connection.execute(query, params)
-            await self._connection.commit()
+            cursor = await conn.execute(query, params)
+            await conn.commit()
             return cursor.rowcount
         except Exception as e:
             logger.error(f"Query execution failed: {e}\nQuery: {query[:200]}...")
@@ -56,12 +74,11 @@ class DatabaseService:
     
     async def execute_many(self, query: str, params_list: List[Tuple]) -> int:
         """Execute query with multiple parameter sets"""
-        if not self._connection:
-            await self.connect()
+        conn = await self._get_connection()
         
         try:
-            cursor = await self._connection.executemany(query, params_list)
-            await self._connection.commit()
+            cursor = await conn.executemany(query, params_list)
+            await conn.commit()
             return cursor.rowcount
         except Exception as e:
             logger.error(f"Batch execution failed: {e}")
@@ -69,11 +86,10 @@ class DatabaseService:
     
     async def fetch_all(self, query: str, params: Tuple = ()) -> List[Dict[str, Any]]:
         """Fetch all rows from query"""
-        if not self._connection:
-            await self.connect()
+        conn = await self._get_connection()
         
         try:
-            cursor = await self._connection.execute(query, params)
+            cursor = await conn.execute(query, params)
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
@@ -82,11 +98,10 @@ class DatabaseService:
     
     async def fetch_one(self, query: str, params: Tuple = ()) -> Optional[Dict[str, Any]]:
         """Fetch single row from query"""
-        if not self._connection:
-            await self.connect()
+        conn = await self._get_connection()
         
         try:
-            cursor = await self._connection.execute(query, params)
+            cursor = await conn.execute(query, params)
             row = await cursor.fetchone()
             return dict(row) if row else None
         except Exception as e:
@@ -103,8 +118,7 @@ class DatabaseService:
     @timed
     async def create_tables(self, incremental: bool = None) -> None:
         """Create all database tables from database-structure.sql"""
-        if not self._connection:
-            await self.connect()
+        conn = await self._get_connection()
         
         # Check config for sync mode if not specified
         if incremental is None:
@@ -124,8 +138,8 @@ class DatabaseService:
             statements = [s.strip() for s in schema_sql.split(';') if s.strip()]
             for stmt in statements:
                 if stmt.strip():
-                    await self._connection.execute(stmt)
-            await self._connection.commit()
+                    await conn.execute(stmt)
+            await conn.commit()
             logger.info("Database tables created successfully")
         except Exception as e:
             logger.error(f"Failed to create tables: {e}")
@@ -213,17 +227,29 @@ class DatabaseService:
     
     async def get_table_count(self, table_name: str) -> int:
         """Get row count for a table"""
-        result = await self.fetch_scalar(f"SELECT COUNT(*) FROM {table_name}")
-        return result or 0
+        try:
+            # Check if table exists first
+            conn = await self._get_connection()
+            cursor = await conn.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,)
+            )
+            row = await cursor.fetchone()
+            if not row or row[0] == 0:
+                return 0
+            
+            # Table exists, get count
+            cursor = await conn.execute(f"SELECT COUNT(*) FROM {table_name}")
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+        except:
+            return 0
     
     async def get_all_table_counts(self) -> Dict[str, int]:
         """Get row counts for all tables"""
         counts = {}
         for table in ALL_TABLES:
-            try:
-                counts[table] = await self.get_table_count(table)
-            except:
-                counts[table] = 0
+            counts[table] = await self.get_table_count(table)
         return counts
     
     async def table_exists(self, table_name: str) -> bool:

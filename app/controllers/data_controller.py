@@ -42,8 +42,6 @@ async def get_groups(
         data = await database_service.fetch_all(query, tuple(params))
         total = await database_service.fetch_scalar("SELECT COUNT(*) FROM mst_group")
         
-        await database_service.disconnect()
-        
         return {"total": total, "data": data}
     except Exception as e:
         logger.error(f"Failed to get groups: {e}")
@@ -79,8 +77,6 @@ async def get_ledgers(
         
         data = await database_service.fetch_all(query, tuple(params))
         total = await database_service.fetch_scalar("SELECT COUNT(*) FROM mst_ledger")
-        
-        await database_service.disconnect()
         
         return {"total": total, "data": data}
     except Exception as e:
@@ -122,8 +118,6 @@ async def get_vouchers(
         data = await database_service.fetch_all(query, tuple(params))
         total = await database_service.fetch_scalar("SELECT COUNT(*) FROM trn_voucher")
         
-        await database_service.disconnect()
-        
         return {"total": total, "data": data}
     except Exception as e:
         logger.error(f"Failed to get vouchers: {e}")
@@ -160,8 +154,6 @@ async def get_stock_items(
         data = await database_service.fetch_all(query, tuple(params))
         total = await database_service.fetch_scalar("SELECT COUNT(*) FROM mst_stock_item")
         
-        await database_service.disconnect()
-        
         return {"total": total, "data": data}
     except Exception as e:
         logger.error(f"Failed to get stock items: {e}")
@@ -180,7 +172,6 @@ async def execute_query(query_request: dict):
     try:
         await database_service.connect()
         data = await database_service.fetch_all(query)
-        await database_service.disconnect()
         
         return {
             "columns": list(data[0].keys()) if data else [],
@@ -198,7 +189,6 @@ async def get_table_counts():
     try:
         await database_service.connect()
         counts = await database_service.get_all_table_counts()
-        await database_service.disconnect()
         return counts
     except Exception as e:
         logger.error(f"Failed to get counts: {e}")

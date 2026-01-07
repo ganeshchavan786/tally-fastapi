@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi.responses import FileResponse
 from pathlib import Path
 
 from .config import config
@@ -73,7 +73,10 @@ app.include_router(debug_router, prefix="/api/debug", tags=["Debug"])
 
 @app.get("/")
 async def root():
-    """Root endpoint"""
+    """Serve the dashboard HTML"""
+    html_path = Path(__file__).parent.parent / "static" / "index.html"
+    if html_path.exists():
+        return FileResponse(str(html_path), media_type="text/html")
     return {
         "name": "Tally FastAPI Database Loader",
         "version": "1.0.0",
