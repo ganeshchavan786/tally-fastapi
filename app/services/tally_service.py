@@ -1,6 +1,45 @@
 """
 Tally Service Module
-Handles XML communication with Tally ERP
+====================
+Handles HTTP/XML communication with Tally Gateway Server.
+
+TALLY GATEWAY:
+-------------
+Tally exposes a local HTTP server (default port 9000) that accepts:
+- XML requests in TDL (Tally Definition Language) format
+- Returns XML responses with requested data
+
+CONNECTION:
+----------
+- URL: http://localhost:9000 (configurable in config.yaml)
+- Method: POST
+- Content-Type: text/xml
+- Encoding: UTF-16 (Tally requirement)
+
+REQUEST TYPES:
+-------------
+1. Export Data: Fetch records from Tally collections
+2. Company Info: Get company details (GUID, AlterID, etc.)
+3. Company List: Get all open companies
+
+RESPONSE HANDLING:
+-----------------
+- Responses are UTF-16 encoded XML
+- May have BOM (Byte Order Mark) - must be stripped
+- Parse with ElementTree after encoding conversion
+
+SVCURRENTCOMPANY:
+----------------
+- XML tag to specify target company
+- If empty/missing: uses currently active company in Tally
+- Must match exact company name in Tally
+
+DEVELOPER NOTES:
+---------------
+- Always handle connection errors gracefully
+- Retry logic for transient failures
+- Check company is open in Tally before sync
+- AlterID from company_info used for incremental sync detection
 """
 
 import httpx

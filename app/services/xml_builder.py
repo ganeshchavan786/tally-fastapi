@@ -1,7 +1,82 @@
 """
 XML Builder Module
-Generates TDL XML requests for Tally based on YAML config
-Ported from Node.js tally.mjs generateXMLfromYAML function
+==================
+Generates TDL XML requests for Tally based on YAML configuration.
+Ported from Node.js tally.mjs generateXMLfromYAML function.
+
+YAML CONFIG FILES:
+-----------------
+- tally-export-config.yaml: Full sync (no alterid field)
+- tally-export-config-incremental.yaml: Incremental sync (with alterid)
+
+YAML STRUCTURE:
+--------------
+master:
+  - name: mst_ledger           # Database table name
+    collection: Ledger         # Tally collection name
+    nature: Primary            # Primary or Derived
+    fields:
+      - name: guid             # DB column name
+        field: Guid            # Tally field/formula
+        type: text             # text, number, amount, logical, date
+    filters:                   # Optional Tally filters
+      - NOT $IsCancelled
+    fetch:                     # Additional fields to fetch
+      - AlterId
+    cascade_delete:            # For incremental sync
+      - table: related_table
+        field: parent_guid
+
+TDL XML STRUCTURE:
+-----------------
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>ReportName</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVCURRENTCOMPANY>CompanyName</SVCURRENTCOMPANY>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <REPORT>...</REPORT>
+          <FORM>...</FORM>
+          <PART>...</PART>
+          <LINE>...</LINE>
+          <FIELD>...</FIELD>
+          <FETCH>...</FETCH>
+          <FILTER>...</FILTER>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>
+
+FIELD TYPES:
+-----------
+- text: String value (Name, GUID)
+- number: Integer/decimal (Quantity, AlterID)
+- amount: Currency with decimals (Amount, Balance)
+- logical: Boolean Yes/No (IsActive)
+- date: Tally date format (VoucherDate)
+
+FILTERS:
+-------
+Filters are Tally TDL expressions:
+- NOT $IsCancelled
+- $AlterID > 12345
+- $$NumItems:AllLedgerEntries > 0
+
+DEVELOPER NOTES:
+---------------
+- reload_config(incremental=True) switches to incremental YAML
+- SVCURRENTCOMPANY tag added only if company is specified
+- Filters are numbered (Fltr01, Fltr02, etc.) in XML
+- HTML escape special characters in field values
 """
 
 import re

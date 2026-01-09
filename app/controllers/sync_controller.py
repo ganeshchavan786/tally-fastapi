@@ -1,6 +1,37 @@
 """
 Sync Controller
-Handles sync-related API endpoints
+===============
+API endpoints for data synchronization operations.
+
+ENDPOINTS:
+---------
+POST /api/sync/full          - Start full sync (replaces all data)
+POST /api/sync/incremental   - Start incremental sync (only changes)
+GET  /api/sync/status        - Get current sync status
+POST /api/sync/cancel        - Cancel running sync
+GET  /api/sync/history       - Get sync history
+
+QUEUE ENDPOINTS (Multi-Company):
+-------------------------------
+POST   /api/sync/queue        - Add companies to queue
+POST   /api/sync/queue/start  - Start processing queue
+GET    /api/sync/queue/status - Get queue status
+DELETE /api/sync/queue        - Clear queue
+
+USAGE:
+-----
+1. Single Company Sync:
+   POST /api/sync/full?company=CompanyName
+
+2. Multi-Company Sync:
+   POST /api/sync/queue
+   Body: {"companies": ["Company1", "Company2"], "sync_type": "full"}
+   POST /api/sync/queue/start
+
+BACKGROUND TASKS:
+----------------
+Sync operations run in background (BackgroundTasks).
+Use /api/sync/status to monitor progress.
 """
 
 from fastapi import APIRouter, BackgroundTasks

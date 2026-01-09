@@ -1,6 +1,48 @@
 """
 Database Service Module
-Handles SQLite database operations
+=======================
+Handles all SQLite database operations.
+
+RESPONSIBILITIES:
+----------------
+1. Database connection management
+2. Table creation from SQL schema files
+3. Bulk insert operations
+4. Query execution
+5. Multi-company data segregation
+
+SCHEMA FILES:
+------------
+- database-structure.sql: Full sync schema (no alterid)
+- database-structure-incremental.sql: Incremental schema (with alterid, _diff, _delete)
+
+MULTI-COMPANY SUPPORT:
+---------------------
+Every data table has _company column:
+- Auto-added via _ensure_company_column_exists()
+- Truncate: DELETE FROM table WHERE _company = 'X'
+- Query: SELECT * FROM table WHERE _company = 'X'
+
+AUTO-COLUMN CREATION:
+--------------------
+_ensure_columns_exist() automatically adds missing columns:
+- If YAML config has field not in SQL schema
+- Prevents "no such column" errors
+- Uses TEXT type as safe default
+
+KEY TABLES:
+----------
+- company_config: Per-company sync metadata
+- _diff: GUID+AlterID for incremental comparison
+- _delete: Records to delete during incremental sync
+- config: Legacy config storage
+
+DEVELOPER NOTES:
+---------------
+- Always use bulk_insert() for performance (batch_size from config)
+- truncate_all_tables(company) only deletes that company's data
+- update_company_config() saves AlterID for incremental sync
+- Use fetch_one/fetch_all for queries, execute for mutations
 """
 
 import aiosqlite

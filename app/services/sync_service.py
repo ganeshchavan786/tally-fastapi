@@ -1,6 +1,54 @@
 """
 Sync Service Module
-Orchestrates data synchronization between Tally and SQLite
+====================
+Orchestrates data synchronization between Tally and SQLite.
+
+ARCHITECTURE:
+------------
+This is the main sync orchestration service that coordinates:
+1. TallyService - HTTP communication with Tally Gateway
+2. DatabaseService - SQLite database operations
+3. XMLBuilder - TDL XML request generation
+
+SYNC TYPES:
+-----------
+1. FULL SYNC (full_sync):
+   - Truncates all data for the company
+   - Fetches ALL records from Tally
+   - Use for: Initial sync, data corruption recovery
+
+2. INCREMENTAL SYNC (incremental_sync):
+   - Uses GUID + AlterID comparison (Node.js style)
+   - Only fetches changed records
+   - Detects: Added, Modified, Deleted records
+   - Use for: Regular updates, faster sync
+
+MULTI-COMPANY SUPPORT:
+---------------------
+- Each record has _company column
+- Sync is company-specific (doesn't affect other companies)
+- Queue service handles sequential multi-company sync
+
+DATA FLOW:
+---------
+1. API Request → SyncService
+2. SyncService → XMLBuilder (generate TDL XML)
+3. XMLBuilder → TallyService (send to Tally)
+4. TallyService → Parse XML response
+5. SyncService → DatabaseService (bulk insert)
+
+KEY TABLES:
+----------
+- company_config: Stores per-company sync metadata (AlterID, last_sync, etc.)
+- _diff: Temporary table for GUID+AlterID comparison
+- _delete: Temporary table for tracking records to delete
+
+DEVELOPER NOTES:
+---------------
+- Always verify Tally connection before truncating data
+- Use _process_diff_for_primary_tables() for delete detection
+- AlterID filter ($AlterID > X) fetches only changed records
+- Cascade delete handles related table cleanup
 """
 
 import asyncio
