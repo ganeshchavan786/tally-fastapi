@@ -214,10 +214,12 @@ async def get_tally_companies():
     try:
         # Get open companies from Tally
         open_companies = await tally_service.get_open_companies()
+        logger.info(f"Open companies from Tally: {open_companies}")
         
         # Get current company info
         current_company_info = await tally_service.get_company_info()
         current_company_name = current_company_info.get("name", "")
+        logger.info(f"Current company: {current_company_name}")
         
         # Mark current company in the list
         for company in open_companies:

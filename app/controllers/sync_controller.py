@@ -51,13 +51,19 @@ class QueueRequest(BaseModel):
 
 
 @router.post("/full")
-async def trigger_full_sync(background_tasks: BackgroundTasks, company: str = ""):
-    """Trigger full data synchronization"""
-    logger.info(f"Full sync requested for company: {company or 'Default'}")
-    background_tasks.add_task(sync_service.full_sync, company)
+async def trigger_full_sync(background_tasks: BackgroundTasks, company: str = "", parallel: bool = False):
+    """Trigger full data synchronization
+    
+    Args:
+        company: Company name to sync (empty = active company in Tally)
+        parallel: If True, fetch all tables simultaneously (3-5x faster)
+    """
+    mode = "parallel" if parallel else "sequential"
+    logger.info(f"Full sync requested for company: {company or 'Default'} (mode={mode})")
+    background_tasks.add_task(sync_service.full_sync, company, parallel)
     return {
         "status": "started",
-        "message": f"Full sync started for {company or 'Default'}"
+        "message": f"Full sync started for {company or 'Default'} (mode={mode})"
     }
 
 

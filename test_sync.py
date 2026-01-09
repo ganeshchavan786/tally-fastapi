@@ -155,37 +155,52 @@ def select_companies(companies):
             except ValueError:
                 print("  Invalid input. Please enter numbers separated by comma.")
 
-def run_full_sync(companies):
+def run_full_sync(companies, parallel=False):
     """Run full sync for selected companies"""
-    print_section("Step 5: Running Full Sync")
+    mode = "PARALLEL" if parallel else "SEQUENTIAL"
+    print_section(f"Step 5: Running Full Sync ({mode})")
     
     if not companies:
         log("No companies selected for full sync", "WARNING")
-        return False
+        return None
     
-    log(f"Starting full sync for {len(companies)} companies...", "INFO")
+    log(f"Starting {mode} full sync for {len(companies)} companies...", "INFO")
+    start_time = time.time()
     
     try:
-        # Add to queue
-        response = requests.post(
-            f"{API_BASE_URL}/api/sync/queue",
-            json={"companies": companies, "sync_type": "full"},
-            timeout=30
-        )
-        data = response.json()
-        log(f"Queue: {data.get('message', 'Added to queue')}", "INFO")
-        
-        # Start queue processing
-        response = requests.post(f"{API_BASE_URL}/api/sync/queue/start", timeout=30)
-        data = response.json()
-        log(f"Started: {data.get('message', 'Processing started')}", "INFO")
+        # For single company, use direct API (faster for timing test)
+        if len(companies) == 1:
+            response = requests.post(
+                f"{API_BASE_URL}/api/sync/full",
+                params={"company": companies[0], "parallel": parallel},
+                timeout=30
+            )
+            data = response.json()
+            log(f"Started: {data.get('message', 'Sync started')}", "INFO")
+        else:
+            # Add to queue for multiple companies
+            response = requests.post(
+                f"{API_BASE_URL}/api/sync/queue",
+                json={"companies": companies, "sync_type": "full"},
+                timeout=30
+            )
+            data = response.json()
+            log(f"Queue: {data.get('message', 'Added to queue')}", "INFO")
+            
+            # Start queue processing
+            response = requests.post(f"{API_BASE_URL}/api/sync/queue/start", timeout=30)
+            data = response.json()
+            log(f"Started: {data.get('message', 'Processing started')}", "INFO")
         
         # Monitor progress
-        return monitor_sync_progress("Full Sync")
+        success = monitor_sync_progress(f"Full Sync ({mode})")
+        elapsed = time.time() - start_time
+        
+        return elapsed if success else None
         
     except Exception as e:
         log(f"Full sync error: {e}", "ERROR")
-        return False
+        return None
 
 def run_incremental_sync(companies):
     """Run incremental sync for selected companies"""
@@ -272,14 +287,15 @@ def monitor_sync_progress(sync_type):
 
 def show_database_stats():
     """Show database statistics"""
-    print_section("Step 7: Database Statistics")
+    print_section("Database Statistics")
     
     try:
         response = requests.get(f"{API_BASE_URL}/api/data/counts", timeout=10)
         data = response.json()
         
-        counts = data.get("counts", {})
-        total = data.get("total", 0)
+        # API returns direct table:count mapping (not nested in "counts" key)
+        counts = data if isinstance(data, dict) else {}
+        total = sum(counts.values()) if counts else 0
         
         print(f"  {'Table':<35} {'Rows':<10}")
         print(f"  {'-' * 45}")
@@ -323,17 +339,77 @@ def show_synced_companies():
     except Exception as e:
         log(f"Error getting synced companies: {e}", "ERROR")
 
+def run_timing_comparison(companies):
+    """Run Sequential vs Parallel sync timing comparison"""
+    print_section("TIMING COMPARISON: Sequential vs Parallel")
+    
+    if not companies:
+        log("No companies selected", "WARNING")
+        return
+    
+    company = companies[0]  # Use first company for comparison
+    log(f"Testing with company: {company}", "INFO")
+    
+    results = {}
+    
+    # Test 1: Sequential Full Sync
+    print(f"\n{Colors.CYAN}Test 1: Sequential Full Sync{Colors.END}")
+    log("Starting Sequential sync...", "INFO")
+    seq_time = run_full_sync([company], parallel=False)
+    if seq_time:
+        results['sequential'] = seq_time
+        log(f"Sequential sync completed in {seq_time:.2f} seconds", "SUCCESS")
+    else:
+        log("Sequential sync failed", "ERROR")
+        return
+    
+    # Small delay between tests
+    print(f"\n{Colors.YELLOW}Waiting 3 seconds before parallel test...{Colors.END}")
+    time.sleep(3)
+    
+    # Test 2: Parallel Full Sync
+    print(f"\n{Colors.CYAN}Test 2: Parallel Full Sync{Colors.END}")
+    log("Starting Parallel sync...", "INFO")
+    par_time = run_full_sync([company], parallel=True)
+    if par_time:
+        results['parallel'] = par_time
+        log(f"Parallel sync completed in {par_time:.2f} seconds", "SUCCESS")
+    else:
+        log("Parallel sync failed", "ERROR")
+        return
+    
+    # Show comparison
+    print_section("TIMING RESULTS")
+    print(f"""
+  {Colors.BOLD}{'Mode':<20} {'Time (seconds)':<15} {'Speed':<15}{Colors.END}
+  {'-' * 50}
+  {'Sequential':<20} {results['sequential']:<15.2f} {'baseline':<15}
+  {'Parallel':<20} {results['parallel']:<15.2f} {f"{results['sequential']/results['parallel']:.2f}x faster" if results['parallel'] < results['sequential'] else 'slower':<15}
+  {'-' * 50}
+    """)
+    
+    speedup = results['sequential'] / results['parallel'] if results['parallel'] > 0 else 0
+    if speedup > 1:
+        log(f"Parallel sync is {speedup:.2f}x FASTER!", "SUCCESS")
+    else:
+        log(f"Parallel sync was slower (possible Tally bottleneck)", "WARNING")
+    
+    # Save to log
+    log(f"TIMING: Sequential={results['sequential']:.2f}s, Parallel={results['parallel']:.2f}s, Speedup={speedup:.2f}x", "INFO")
+
 def main_menu():
     """Show main menu"""
     print(f"""
   {Colors.BOLD}Options:{Colors.END}
   
-  1. Full Sync (fresh sync, replaces all data)
-  2. Incremental Sync (only changes)
-  3. Both (Full + Incremental test)
-  4. Show Database Stats
-  5. Show Synced Companies
-  6. Check Connections
+  1. Full Sync - Sequential (original)
+  2. Full Sync - Parallel (faster)
+  3. Incremental Sync (only changes)
+  4. TIMING TEST: Sequential vs Parallel
+  5. Both (Full + Incremental test)
+  6. Show Database Stats
+  7. Show Synced Companies
+  8. Check Connections
   q. Quit
     """)
     return input("  Select option: ").strip().lower()
@@ -370,18 +446,28 @@ def main():
         elif choice == '1':
             selected = select_companies(companies)
             if selected:
-                run_full_sync(selected)
+                run_full_sync(selected, parallel=False)
                 show_database_stats()
         elif choice == '2':
             selected = select_companies(companies)
             if selected:
-                run_incremental_sync(selected)
+                run_full_sync(selected, parallel=True)
                 show_database_stats()
         elif choice == '3':
             selected = select_companies(companies)
             if selected:
+                run_incremental_sync(selected)
+                show_database_stats()
+        elif choice == '4':
+            selected = select_companies(companies)
+            if selected:
+                run_timing_comparison(selected)
+                show_database_stats()
+        elif choice == '5':
+            selected = select_companies(companies)
+            if selected:
                 log("Running Full Sync first...", "INFO")
-                run_full_sync(selected)
+                run_full_sync(selected, parallel=True)
                 show_database_stats()
                 
                 print(f"\n{Colors.YELLOW}Make some changes in Tally, then press Enter to run Incremental Sync...{Colors.END}")
@@ -390,11 +476,11 @@ def main():
                 log("Running Incremental Sync...", "INFO")
                 run_incremental_sync(selected)
                 show_database_stats()
-        elif choice == '4':
-            show_database_stats()
-        elif choice == '5':
-            show_synced_companies()
         elif choice == '6':
+            show_database_stats()
+        elif choice == '7':
+            show_synced_companies()
+        elif choice == '8':
             check_api_running()
             check_tally_connection()
             companies = get_companies()
