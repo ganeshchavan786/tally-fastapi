@@ -74,6 +74,7 @@ class SyncService:
             config.tally.company = company
         
         logger.info(f"Starting full sync for company: {self.current_company or 'Default'}")
+        logger.info(f"Config company set to: {config.tally.company}")
         
         try:
             # Connect to database
@@ -89,9 +90,29 @@ class SyncService:
             # Save sync state for crash recovery
             self._save_sync_state("full", "initializing", 0)
             
-            # Truncate all tables for full sync
-            logger.info("Truncating existing data...")
-            await database_service.truncate_all_tables()
+            # Verify Tally connection and company data before truncating
+            # This prevents data loss if Tally returns empty response
+            logger.info("Verifying Tally connection before truncate...")
+            test_table = xml_builder.get_master_tables()[0] if xml_builder.get_master_tables() else None
+            if test_table:
+                test_rows = await self._extract_table_data(test_table)
+                if not test_rows:
+                    error_msg = f"Tally returned 0 rows for {test_table.get('name')}. Company may not be active in Tally. Aborting sync to prevent data loss."
+                    logger.error(error_msg)
+                    self.status = SyncStatus.FAILED
+                    self.error_message = error_msg
+                    await self._update_sync_history(sync_history_id, "failed", error_msg)
+                    return self.get_status()
+                logger.info(f"Tally verification passed: {len(test_rows)} rows from {test_table.get('name')}")
+            
+            # Truncate only current company's data (not all data)
+            logger.info(f"Truncating data for company: {self.current_company}...")
+            await database_service.truncate_all_tables(company=self.current_company)
+            
+            # Update config table BEFORE data sync (like Node.js)
+            # This ensures company info is saved even if sync fails
+            logger.info("Updating config table before sync...")
+            await self._update_config_table()
             
             # Sync master data
             logger.info("Syncing master data...")
@@ -142,7 +163,7 @@ class SyncService:
     
     @timed
     async def incremental_sync(self, company: str = "") -> Dict[str, Any]:
-        """Perform incremental data synchronization (only changed records)"""
+        """Perform incremental data synchronization using GUID+AlterID diff comparison (Node.js style)"""
         if self.status == SyncStatus.RUNNING:
             return {"error": "Sync already in progress"}
         
@@ -157,6 +178,7 @@ class SyncService:
             config.tally.company = company
         
         logger.info(f"Starting incremental sync for company: {self.current_company or 'Default'}")
+        logger.info(f"Config company set to: {config.tally.company}")
         
         try:
             # Reload config for incremental mode
@@ -169,33 +191,65 @@ class SyncService:
             logger.info("Creating database tables (incremental schema)...")
             await database_service.create_tables(incremental=True)
             
+            # Ensure _diff and _delete tables exist
+            await database_service.ensure_company_config_table()
+            
             # Save sync history - started
             sync_history_id = await self._save_sync_history("incremental", "running")
             
-            # Get last sync alterid from config table
-            last_alterid = await self._get_last_alterid()
-            logger.info(f"Last sync AlterID: {last_alterid}")
+            # Get last sync alterid from database
+            last_alterid_master = await self._get_last_alterid()
+            last_alterid_transaction = await self._get_last_alterid_transaction()
+            logger.info(f"Last sync AlterID - Master: {last_alterid_master}, Transaction: {last_alterid_transaction}")
             
-            # Sync master data with alterid filter
-            logger.info("Syncing master data (incremental)...")
-            await self._sync_master_data_incremental(last_alterid)
+            # Update config table BEFORE data sync (like Node.js)
+            logger.info("Updating config table before sync...")
+            await self._update_config_table()
+            
+            # Get current AlterID from Tally
+            current_alterid_master = await self._get_current_alterid_from_tally("master")
+            current_alterid_transaction = await self._get_current_alterid_from_tally("transaction")
+            logger.info(f"Current Tally AlterID - Master: {current_alterid_master}, Transaction: {current_alterid_transaction}")
+            
+            # Check if anything changed
+            master_changed = current_alterid_master != last_alterid_master
+            transaction_changed = current_alterid_transaction != last_alterid_transaction
+            
+            if not master_changed and not transaction_changed:
+                logger.info("No changes detected in Tally")
+                self.status = SyncStatus.COMPLETED
+                self.completed_at = datetime.now()
+                self.progress = 100
+                await self._update_sync_history(sync_history_id, "completed")
+                return self.get_status()
+            
+            # Process Primary tables for diff comparison (deleted/modified records)
+            if master_changed:
+                logger.info("Processing master data diff...")
+                await self._process_diff_for_primary_tables("master", last_alterid_master)
+            
+            if transaction_changed:
+                logger.info("Processing transaction data diff...")
+                await self._process_diff_for_primary_tables("transaction", last_alterid_transaction)
             
             if self._cancel_requested:
                 self.status = SyncStatus.CANCELLED
                 await self._update_sync_history(sync_history_id, "cancelled")
                 return self.get_status()
             
-            # Sync transaction data with alterid filter
-            logger.info("Syncing transaction data (incremental)...")
-            await self._sync_transaction_data_incremental(last_alterid)
+            # Import new/modified records with AlterID filter
+            if master_changed:
+                logger.info("Importing changed master data...")
+                await self._import_changed_records("master", last_alterid_master)
+            
+            if transaction_changed:
+                logger.info("Importing changed transaction data...")
+                await self._import_changed_records("transaction", last_alterid_transaction)
             
             if self._cancel_requested:
                 self.status = SyncStatus.CANCELLED
                 await self._update_sync_history(sync_history_id, "cancelled")
                 return self.get_status()
-            
-            # Update last alterid in config
-            await self._update_last_alterid()
             
             self.status = SyncStatus.COMPLETED
             self.completed_at = datetime.now()
@@ -221,16 +275,185 @@ class SyncService:
             await database_service.disconnect()
     
     async def _get_last_alterid(self) -> int:
-        """Get last sync alterid from config table"""
+        """Get last sync alterid from company_config table for current company"""
         try:
+            if self.current_company:
+                result = await database_service.fetch_one(
+                    "SELECT last_alter_id_master FROM company_config WHERE company_name = ?",
+                    (self.current_company,)
+                )
+                if result:
+                    return int(result.get("last_alter_id_master", 0) or 0)
+            # Fallback to config table
             result = await database_service.fetch_one(
-                "SELECT value FROM config WHERE name = 'last_alterid'"
+                "SELECT value FROM config WHERE name = 'Last AlterID Master'"
             )
             if result:
-                return int(result.get("value", 0))
-        except:
-            pass
+                return int(result.get("value", 0) or 0)
+        except Exception as e:
+            logger.warning(f"Could not get last alterid: {e}")
         return 0
+    
+    async def _get_last_alterid_transaction(self) -> int:
+        """Get last sync transaction alterid from company_config table"""
+        try:
+            if self.current_company:
+                result = await database_service.fetch_one(
+                    "SELECT last_alter_id_transaction FROM company_config WHERE company_name = ?",
+                    (self.current_company,)
+                )
+                if result:
+                    return int(result.get("last_alter_id_transaction", 0) or 0)
+            # Fallback to config table
+            result = await database_service.fetch_one(
+                "SELECT value FROM config WHERE name = 'Last AlterID Transaction'"
+            )
+            if result:
+                return int(result.get("value", 0) or 0)
+        except Exception as e:
+            logger.warning(f"Could not get last transaction alterid: {e}")
+        return 0
+    
+    async def _get_current_alterid_from_tally(self, data_type: str = "master") -> int:
+        """Get current AlterID from Tally company info"""
+        try:
+            company_info = await tally_service.get_company_info()
+            if data_type == "master":
+                return int(company_info.get("alter_id", 0) or 0)
+            else:
+                # For transaction, use the same alterid for now
+                return int(company_info.get("alter_id", 0) or 0)
+        except Exception as e:
+            logger.warning(f"Could not get current alterid from Tally: {e}")
+        return 0
+    
+    async def _process_diff_for_primary_tables(self, data_type: str, last_alterid: int) -> None:
+        """Process diff for Primary tables - find deleted/modified records using GUID+AlterID comparison"""
+        if data_type == "master":
+            tables = xml_builder.get_master_tables()
+        else:
+            tables = xml_builder.get_transaction_tables()
+        
+        # Filter only Primary nature tables
+        primary_tables = [t for t in tables if t.get("nature") == "Primary"]
+        
+        for table_config in primary_tables:
+            table_name = table_config.get("name", "")
+            collection = table_config.get("collection", "")
+            filters = table_config.get("filters", [])
+            
+            logger.info(f"  Processing diff for {table_name}...")
+            
+            try:
+                # Step 1: Truncate _diff and _delete tables
+                await database_service.execute("DELETE FROM _diff")
+                await database_service.execute("DELETE FROM _delete")
+                
+                # Step 2: Fetch GUID + AlterID from Tally into _diff table
+                diff_config = {
+                    "name": "_diff",
+                    "collection": collection,
+                    "fields": [
+                        {"name": "guid", "field": "Guid", "type": "text"},
+                        {"name": "alterid", "field": "AlterId", "type": "text"}
+                    ],
+                    "fetch": ["AlterId"],
+                    "filters": filters
+                }
+                
+                diff_rows = await self._extract_table_data(diff_config)
+                if diff_rows:
+                    # Insert into _diff table
+                    for row in diff_rows:
+                        await database_service.execute(
+                            "INSERT OR REPLACE INTO _diff (guid, alterid) VALUES (?, ?)",
+                            (row.get("guid", ""), str(row.get("alterid", "")))
+                        )
+                    logger.info(f"    Fetched {len(diff_rows)} records from Tally for diff")
+                
+                # Step 3: Find deleted records (guid in DB but not in _diff)
+                await database_service.execute(f"""
+                    INSERT OR IGNORE INTO _delete 
+                    SELECT guid FROM {table_name} 
+                    WHERE guid NOT IN (SELECT guid FROM _diff)
+                    AND _company = ?
+                """, (self.current_company,))
+                
+                # Step 4: Find modified records (guid exists but alterid different)
+                await database_service.execute(f"""
+                    INSERT OR IGNORE INTO _delete 
+                    SELECT t.guid FROM {table_name} t 
+                    JOIN _diff d ON d.guid = t.guid 
+                    WHERE d.alterid <> COALESCE(t.alterid, '')
+                    AND t._company = ?
+                """, (self.current_company,))
+                
+                # Step 5: Delete from main table
+                delete_result = await database_service.fetch_one("SELECT COUNT(*) as cnt FROM _delete")
+                delete_count = delete_result.get("cnt", 0) if delete_result else 0
+                
+                if delete_count > 0:
+                    await database_service.execute(f"""
+                        DELETE FROM {table_name} 
+                        WHERE guid IN (SELECT guid FROM _delete)
+                        AND _company = ?
+                    """, (self.current_company,))
+                    logger.info(f"    Deleted {delete_count} modified/removed records from {table_name}")
+                
+                # Step 6: Cascade delete for related tables
+                cascade_delete = table_config.get("cascade_delete", [])
+                if cascade_delete and delete_count > 0:
+                    for cascade in cascade_delete:
+                        target_table = cascade.get("table", "")
+                        target_field = cascade.get("field", "")
+                        if target_table and target_field:
+                            await database_service.execute(f"""
+                                DELETE FROM {target_table} 
+                                WHERE {target_field} IN (SELECT guid FROM _delete)
+                            """)
+                            logger.info(f"    Cascade deleted from {target_table}")
+                
+            except Exception as e:
+                logger.error(f"    Failed to process diff for {table_name}: {e}")
+    
+    async def _import_changed_records(self, data_type: str, last_alterid: int) -> None:
+        """Import new/modified records with AlterID filter"""
+        if data_type == "master":
+            tables = xml_builder.get_master_tables()
+        else:
+            tables = xml_builder.get_transaction_tables()
+        
+        total_tables = len(tables)
+        
+        for i, table_config in enumerate(tables):
+            if self._cancel_requested:
+                return
+            
+            table_name = table_config.get("name", "")
+            self.current_table = table_name
+            self.progress = int((i / total_tables) * 50) + 50  # 50-100%
+            
+            try:
+                # Add AlterID filter
+                table_config_with_filter = table_config.copy()
+                if last_alterid > 0:
+                    existing_filters = list(table_config_with_filter.get("filters", []) or [])
+                    table_config_with_filter["filters"] = existing_filters + [f"$AlterID > {last_alterid}"]
+                
+                rows = await self._extract_table_data(table_config_with_filter)
+                if rows:
+                    # Add company name to rows
+                    for row in rows:
+                        row["_company"] = self.current_company
+                    
+                    # Use upsert (INSERT OR REPLACE)
+                    count = await self._upsert_rows(table_name, rows)
+                    self.rows_processed += count
+                    logger.info(f"  {table_name}: imported {count} changed rows")
+                else:
+                    logger.info(f"  {table_name}: no changes")
+            except Exception as e:
+                logger.error(f"  {table_name}: failed - {e}")
     
     async def _update_last_alterid(self) -> None:
         """Update last alterid in config table after sync"""
@@ -254,64 +477,6 @@ class SyncService:
         except Exception as e:
             logger.error(f"Failed to update last_alterid: {e}")
     
-    async def _sync_master_data_incremental(self, last_alterid: int) -> None:
-        """Sync master data with alterid filter"""
-        master_tables = xml_builder.get_master_tables()
-        total_tables = len(master_tables) + len(xml_builder.get_transaction_tables())
-        
-        for i, table_config in enumerate(master_tables):
-            if self._cancel_requested:
-                return
-            
-            table_name = table_config.get("name", "")
-            self.current_table = table_name
-            self.progress = int((i / total_tables) * 100)
-            
-            try:
-                # Add alterid filter to table config
-                table_config_with_filter = table_config.copy()
-                if last_alterid > 0:
-                    table_config_with_filter["filter"] = f"$AlterID > {last_alterid}"
-                
-                rows = await self._extract_table_data(table_config_with_filter)
-                if rows:
-                    # For incremental, use upsert (INSERT OR REPLACE)
-                    count = await self._upsert_rows(table_name, rows)
-                    self.rows_processed += count
-                    logger.info(f"  {table_name}: upserted {count} rows")
-                else:
-                    logger.info(f"  {table_name}: no changes")
-            except Exception as e:
-                logger.error(f"  {table_name}: failed - {e}")
-    
-    async def _sync_transaction_data_incremental(self, last_alterid: int) -> None:
-        """Sync transaction data with alterid filter"""
-        master_tables = xml_builder.get_master_tables()
-        transaction_tables = xml_builder.get_transaction_tables()
-        total_tables = len(master_tables) + len(transaction_tables)
-        
-        for i, table_config in enumerate(transaction_tables):
-            if self._cancel_requested:
-                return
-            
-            table_name = table_config.get("name", "")
-            self.current_table = table_name
-            self.progress = int(((len(master_tables) + i) / total_tables) * 100)
-            
-            try:
-                table_config_with_filter = table_config.copy()
-                if last_alterid > 0:
-                    table_config_with_filter["filter"] = f"$AlterID > {last_alterid}"
-                
-                rows = await self._extract_table_data(table_config_with_filter)
-                if rows:
-                    count = await self._upsert_rows(table_name, rows)
-                    self.rows_processed += count
-                    logger.info(f"  {table_name}: upserted {count} rows")
-                else:
-                    logger.info(f"  {table_name}: no changes")
-            except Exception as e:
-                logger.error(f"  {table_name}: failed - {e}")
     
     async def _upsert_rows(self, table_name: str, rows: List[Dict]) -> int:
         """Insert or replace rows (upsert for incremental sync)"""
@@ -348,9 +513,9 @@ class SyncService:
             try:
                 rows = await self._extract_table_data(table_config)
                 if rows:
-                    count = await database_service.bulk_insert(table_name, rows)
+                    count = await database_service.bulk_insert(table_name, rows, self.current_company)
                     self.rows_processed += count
-                    logger.info(f"  {table_name}: imported {count} rows")
+                    logger.info(f"  {table_name}: imported {count} rows for {self.current_company}")
                 else:
                     logger.info(f"  {table_name}: imported 0 rows")
             except Exception as e:
@@ -373,9 +538,9 @@ class SyncService:
             try:
                 rows = await self._extract_table_data(table_config)
                 if rows:
-                    count = await database_service.bulk_insert(table_name, rows)
+                    count = await database_service.bulk_insert(table_name, rows, self.current_company)
                     self.rows_processed += count
-                    logger.info(f"  {table_name}: imported {count} rows")
+                    logger.info(f"  {table_name}: imported {count} rows for {self.current_company}")
                 else:
                     logger.info(f"  {table_name}: imported 0 rows")
             except Exception as e:
@@ -798,26 +963,50 @@ class SyncService:
             # Clear existing config
             await database_service.execute("DELETE FROM config")
             
-            # Get company name from Tally
-            company_name = "Unknown"
-            try:
-                company_info = await tally_service.get_company_info()
-                if company_info and not company_info.get("error"):
-                    # Key is "company_name" not "name"
-                    company_name = company_info.get("company_name", "Unknown") or "Unknown"
-            except Exception as e:
-                logger.warning(f"Could not get company name: {e}")
+            # Get company name - use current_company if set, otherwise get from Tally
+            company_name = self.current_company or "Unknown"
+            company_guid = ""
+            company_alterid = 0
+            
+            if not self.current_company:
+                try:
+                    company_info = await tally_service.get_company_info()
+                    if company_info and not company_info.get("error"):
+                        company_name = company_info.get("company_name", "Unknown") or "Unknown"
+                        company_guid = company_info.get("guid", "") or ""
+                        company_alterid = int(company_info.get("alterid", 0) or 0)
+                except Exception as e:
+                    logger.warning(f"Could not get company info: {e}")
+            else:
+                # Get GUID and AlterID for current company
+                try:
+                    company_info = await tally_service.get_company_info()
+                    if company_info and not company_info.get("error"):
+                        company_guid = company_info.get("guid", "") or ""
+                        company_alterid = int(company_info.get("alterid", 0) or 0)
+                except Exception as e:
+                    logger.warning(f"Could not get company GUID/AlterID: {e}")
             
             # Get Last AlterID from Tally for incremental sync
-            alt_id_master = "0"
-            alt_id_transaction = "0"
+            alt_id_master = 0
+            alt_id_transaction = 0
             try:
                 alter_ids = await tally_service.get_last_alter_ids()
                 if alter_ids:
-                    alt_id_master = str(alter_ids.get("master", 0))
-                    alt_id_transaction = str(alter_ids.get("transaction", 0))
+                    alt_id_master = int(alter_ids.get("master", 0) or 0)
+                    alt_id_transaction = int(alter_ids.get("transaction", 0) or 0)
             except Exception as e:
                 logger.warning(f"Could not get AlterIDs: {e}")
+            
+            # Update company_config table with GUID and AlterID
+            await database_service.update_company_config(
+                company_name=company_name,
+                company_guid=company_guid,
+                company_alterid=company_alterid,
+                last_alter_id_master=alt_id_master,
+                last_alter_id_transaction=alt_id_transaction,
+                sync_type="full" if self.status != SyncStatus.RUNNING else "incremental"
+            )
             
             # Insert config values (from_date/to_date are in tally config, not sync config)
             config_values = [
@@ -827,8 +1016,8 @@ class SyncService:
                 ("Period To", config.tally.to_date),
                 ("Sync Mode", config.sync.mode),
                 ("Total Rows", str(self.rows_processed)),
-                ("Last AlterID Master", alt_id_master),
-                ("Last AlterID Transaction", alt_id_transaction),
+                ("Last AlterID Master", str(alt_id_master)),
+                ("Last AlterID Transaction", str(alt_id_transaction)),
             ]
             
             for name, value in config_values:
@@ -837,7 +1026,7 @@ class SyncService:
                     (name, value)
                 )
             
-            logger.info("Config table updated with sync info")
+            logger.info(f"Config updated for company: {company_name}, AlterID Master: {alt_id_master}, AlterID Transaction: {alt_id_transaction}")
         except Exception as e:
             logger.warning(f"Failed to update config table: {e}")
 

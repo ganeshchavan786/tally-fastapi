@@ -84,6 +84,10 @@ class XMLBuilder:
         sv_to = to_date.replace("-", "") if to_date else config.tally.to_date.replace("-", "")
         target_company = config.tally.company or ""
         
+        # Debug: log company being used
+        from loguru import logger
+        logger.debug(f"XML Builder: target_company = '{target_company}'")
+        
         # XML header
         retval = '<?xml version="1.0" encoding="utf-8"?><ENVELOPE><HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST><TYPE>Data</TYPE><ID>TallyDatabaseLoaderReport</ID></HEADER><BODY><DESC><STATICVARIABLES><SVEXPORTFORMAT>XML (Data Interchange)</SVEXPORTFORMAT>'
         retval += f'<SVFROMDATE>{sv_from}</SVFROMDATE><SVTODATE>{sv_to}</SVTODATE>'

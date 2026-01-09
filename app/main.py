@@ -36,6 +36,13 @@ async def lifespan(app: FastAPI):
     """Application lifespan events"""
     logger.info("Tally FastAPI Database Loader starting...")
     logger.info(f"API running on http://{config.api.host}:{config.api.port}")
+    
+    # Ensure company_config table exists on startup
+    from .services.database_service import database_service
+    await database_service.connect()
+    await database_service.ensure_company_config_table()
+    await database_service.disconnect()
+    
     yield
     logger.info("Tally FastAPI Database Loader shutting down...")
 

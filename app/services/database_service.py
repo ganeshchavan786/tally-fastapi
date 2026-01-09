@@ -5,6 +5,7 @@ Handles SQLite database operations
 
 import aiosqlite
 from pathlib import Path
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..config import config
@@ -141,9 +142,50 @@ class DatabaseService:
                     await conn.execute(stmt)
             await conn.commit()
             logger.info("Database tables created successfully")
+            
+            # Auto-add _company column to all tables for multi-company support
+            await self._ensure_company_column_exists()
         except Exception as e:
             logger.error(f"Failed to create tables: {e}")
             raise
+    
+    async def _ensure_company_column_exists(self) -> None:
+        """Auto-add _company column to all tables for multi-company support"""
+        conn = await self._get_connection()
+        
+        for table in ALL_TABLES:
+            try:
+                cursor = await conn.execute(f"PRAGMA table_info({table})")
+                columns = await cursor.fetchall()
+                column_names = [col[1] for col in columns]
+                
+                if "_company" not in column_names:
+                    await conn.execute(f"ALTER TABLE {table} ADD COLUMN _company TEXT DEFAULT ''")
+                    logger.debug(f"Added _company column to {table}")
+            except Exception as e:
+                logger.debug(f"Could not add _company to {table}: {e}")
+        
+        await conn.commit()
+        logger.info("Ensured _company column exists in all tables")
+    
+    async def _ensure_columns_exist(self, table_name: str, columns: List[str]) -> None:
+        """Auto-add missing columns to table based on data being inserted"""
+        conn = await self._get_connection()
+        
+        try:
+            cursor = await conn.execute(f"PRAGMA table_info({table_name})")
+            existing_columns = await cursor.fetchall()
+            existing_column_names = [col[1] for col in existing_columns]
+            
+            for col in columns:
+                if col not in existing_column_names:
+                    # Add missing column with TEXT type (safe default)
+                    await conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {col} TEXT DEFAULT ''")
+                    logger.debug(f"Auto-added column '{col}' to table '{table_name}'")
+            
+            await conn.commit()
+        except Exception as e:
+            logger.warning(f"Could not ensure columns for {table_name}: {e}")
     
     def _load_schema_from_file(self, incremental: bool = False) -> str:
         """Load schema from database-structure.sql file"""
@@ -163,6 +205,8 @@ class DatabaseService:
         import re
         # Replace CREATE TABLE with CREATE TABLE IF NOT EXISTS
         sql = re.sub(r'create\s+table\s+(?!if)', 'CREATE TABLE IF NOT EXISTS ', sql, flags=re.IGNORECASE)
+        # Replace CREATE INDEX with CREATE INDEX IF NOT EXISTS
+        sql = re.sub(r'create\s+index\s+(?!if)', 'CREATE INDEX IF NOT EXISTS ', sql, flags=re.IGNORECASE)
         # Replace types - only when they appear as data types (after column name)
         # Pattern: column_name followed by space and type
         sql = re.sub(r'\bnvarchar\s*\(\d+\)', 'TEXT', sql, flags=re.IGNORECASE)
@@ -176,30 +220,53 @@ class DatabaseService:
         sql = re.sub(r'(?<=\s)date(?=\s*,|\s*\n|\s+not|\s+default|\s*\))', 'TEXT', sql, flags=re.IGNORECASE)
         return sql
     
-    async def truncate_table(self, table_name: str) -> None:
-        """Delete all rows from a table (SQLite doesn't support TRUNCATE)"""
-        await self.execute(f"DELETE FROM {table_name}")
-        logger.debug(f"Truncated table: {table_name}")
+    async def truncate_table(self, table_name: str, company: str = None) -> None:
+        """Delete all rows from a table, optionally only for a specific company"""
+        if company:
+            # Check if _company column exists
+            conn = await self._get_connection()
+            cursor = await conn.execute(f"PRAGMA table_info({table_name})")
+            columns = await cursor.fetchall()
+            has_company_col = any(col[1] == '_company' for col in columns)
+            
+            if has_company_col:
+                await self.execute(f"DELETE FROM {table_name} WHERE _company = ?", (company,))
+                logger.debug(f"Truncated table {table_name} for company: {company}")
+            else:
+                await self.execute(f"DELETE FROM {table_name}")
+                logger.debug(f"Truncated table: {table_name} (no _company column)")
+        else:
+            await self.execute(f"DELETE FROM {table_name}")
+            logger.debug(f"Truncated table: {table_name}")
     
-    async def truncate_all_tables(self) -> None:
-        """Truncate all tables"""
+    async def truncate_all_tables(self, company: str = None) -> None:
+        """Truncate all tables, optionally only for a specific company"""
         for table in ALL_TABLES:
             try:
-                await self.truncate_table(table)
+                await self.truncate_table(table, company)
             except Exception as e:
                 logger.warning(f"Could not truncate {table}: {e}")
     
     @timed
-    async def bulk_insert(self, table_name: str, rows: List[Dict[str, Any]]) -> int:
-        """Bulk insert rows into table"""
+    async def bulk_insert(self, table_name: str, rows: List[Dict[str, Any]], company_name: str = None) -> int:
+        """Bulk insert rows into table, optionally with company name"""
         if not rows:
             return 0
         
         if not self._connection:
             await self.connect()
         
+        # Add _company column if company_name provided
+        if company_name:
+            for row in rows:
+                row['_company'] = company_name
+        
         # Get column names from first row
         columns = list(rows[0].keys())
+        
+        # Auto-add missing columns to table
+        await self._ensure_columns_exist(table_name, columns)
+        
         placeholders = ', '.join(['?' for _ in columns])
         column_names = ', '.join(columns)
         
@@ -656,6 +723,110 @@ CREATE INDEX IF NOT EXISTS idx_mst_stock_item_parent ON mst_stock_item(parent);
             "skipped_tables": skipped_tables,
             "message": f"Updated {len(updated_tables)} tables, skipped {len(skipped_tables)}"
         }
+
+    async def ensure_company_config_table(self) -> None:
+        """Ensure company_config table exists with all required columns"""
+        conn = await self._get_connection()
+        try:
+            # Create company_config table
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS company_config (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    company_name TEXT NOT NULL UNIQUE,
+                    company_guid TEXT DEFAULT '',
+                    company_alterid INTEGER DEFAULT 0,
+                    last_alter_id_master INTEGER DEFAULT 0,
+                    last_alter_id_transaction INTEGER DEFAULT 0,
+                    last_sync_at TEXT,
+                    last_sync_type TEXT,
+                    sync_count INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create _diff table for incremental sync (GUID + AlterID comparison)
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS _diff (
+                    guid TEXT PRIMARY KEY,
+                    alterid TEXT DEFAULT ''
+                )
+            ''')
+            
+            # Create _delete table for tracking records to delete
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS _delete (
+                    guid TEXT PRIMARY KEY
+                )
+            ''')
+            
+            # Create index
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_company_config_name ON company_config(company_name)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_company_config_guid ON company_config(company_guid)')
+            
+            await conn.commit()
+            logger.info("Ensured company_config table exists")
+        except Exception as e:
+            logger.warning(f"Could not ensure company_config table: {e}")
+
+    async def update_company_config(self, company_name: str, company_guid: str = "", company_alterid: int = 0,
+                                     last_alter_id_master: int = 0, last_alter_id_transaction: int = 0,
+                                     sync_type: str = "full") -> None:
+        """Update or insert company config record"""
+        conn = await self._get_connection()
+        try:
+            # Check if company exists
+            cursor = await conn.execute(
+                "SELECT id, sync_count FROM company_config WHERE company_name = ?",
+                (company_name,)
+            )
+            existing = await cursor.fetchone()
+            
+            now = datetime.now().isoformat()
+            
+            if existing:
+                # Update existing record
+                sync_count = (existing[1] or 0) + 1
+                await conn.execute('''
+                    UPDATE company_config SET
+                        company_guid = COALESCE(NULLIF(?, ''), company_guid),
+                        company_alterid = CASE WHEN ? > 0 THEN ? ELSE company_alterid END,
+                        last_alter_id_master = ?,
+                        last_alter_id_transaction = ?,
+                        last_sync_at = ?,
+                        last_sync_type = ?,
+                        sync_count = ?,
+                        updated_at = ?
+                    WHERE company_name = ?
+                ''', (company_guid, company_alterid, company_alterid, last_alter_id_master, 
+                      last_alter_id_transaction, now, sync_type, sync_count, now, company_name))
+                logger.info(f"Updated company config for: {company_name} (GUID: {company_guid})")
+            else:
+                # Insert new record
+                await conn.execute('''
+                    INSERT INTO company_config 
+                    (company_name, company_guid, company_alterid, last_alter_id_master, 
+                     last_alter_id_transaction, last_sync_at, last_sync_type, sync_count, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                ''', (company_name, company_guid, company_alterid, last_alter_id_master,
+                      last_alter_id_transaction, now, sync_type, now, now))
+                logger.info(f"New company added: {company_name} (GUID: {company_guid}, AlterID: {company_alterid})")
+            
+            await conn.commit()
+        except Exception as e:
+            logger.error(f"Failed to update company config: {e}")
+
+    async def get_synced_companies(self) -> List[Dict[str, Any]]:
+        """Get list of synced companies from company_config"""
+        try:
+            rows = await self.fetch_all(
+                "SELECT company_name, company_guid, company_alterid, last_alter_id_master, "
+                "last_alter_id_transaction, last_sync_at, sync_count FROM company_config ORDER BY company_name"
+            )
+            return rows
+        except Exception as e:
+            logger.error(f"Failed to get synced companies: {e}")
+            return []
 
 
 # Global service instance

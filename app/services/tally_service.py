@@ -212,7 +212,7 @@ class TallyService:
                                 <SCROLLED>Vertical</SCROLLED>
                             </PART>
                             <LINE NAME="CurrentCompanyInfo">
-                                <FIELDS>FldCompanyName,FldBooksFrom,FldLastVoucherDate</FIELDS>
+                                <FIELDS>FldCompanyName,FldBooksFrom,FldLastVoucherDate,FldGUID,FldAlterID</FIELDS>
                             </LINE>
                             <FIELD NAME="FldCompanyName">
                                 <SET>$Name</SET>
@@ -222,6 +222,12 @@ class TallyService:
                             </FIELD>
                             <FIELD NAME="FldLastVoucherDate">
                                 <SET>$LastVoucherDate</SET>
+                            </FIELD>
+                            <FIELD NAME="FldGUID">
+                                <SET>$GUID</SET>
+                            </FIELD>
+                            <FIELD NAME="FldAlterID">
+                                <SET>$AlterID</SET>
                             </FIELD>
                         </TDLMESSAGE>
                     </TDL>
@@ -248,6 +254,8 @@ class TallyService:
             company_name = ""
             books_from = ""
             last_voucher_date = ""
+            guid = ""
+            alterid = 0
             
             # Find company info fields
             for elem in root.iter():
@@ -257,11 +265,20 @@ class TallyService:
                     books_from = parse_tally_date(elem.text) or ""
                 elif elem.tag == "FLDLASTVOUCHERDATE":
                     last_voucher_date = parse_tally_date(elem.text) or ""
+                elif elem.tag == "FLDGUID":
+                    guid = elem.text or ""
+                elif elem.tag == "FLDALTERID":
+                    try:
+                        alterid = int(elem.text or 0)
+                    except:
+                        alterid = 0
             
             return {
                 "company_name": company_name,
                 "books_from": books_from,
-                "last_voucher_date": last_voucher_date
+                "last_voucher_date": last_voucher_date,
+                "guid": guid,
+                "alterid": alterid
             }
         except ET.ParseError as e:
             logger.error(f"XML parse error: {e}")
