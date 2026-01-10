@@ -139,9 +139,9 @@ class TallyService:
             }
     
     async def get_open_companies(self) -> List[Dict[str, Any]]:
-        """Get list of all open companies in Tally"""
-        # Use Collection type request - works with Tally Prime
-        xml_request = '''<?xml version="1.0" encoding="utf-8"?>
+        """Get list of all open companies in Tally with their periods"""
+        # Use simple collection request that works reliably
+        xml_request = '''<?xml version="1.0" encoding="UTF-16"?>
         <ENVELOPE>
             <HEADER>
                 <VERSION>1</VERSION>
@@ -154,18 +154,96 @@ class TallyService:
                     <STATICVARIABLES>
                         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
                     </STATICVARIABLES>
+                    <TDL>
+                        <TDLMESSAGE>
+                            <COLLECTION NAME="List of Companies">
+                                <TYPE>Company</TYPE>
+                                <FETCH>NAME,BOOKSFROM,STARTINGFROM,COMPANYNUMBER</FETCH>
+                            </COLLECTION>
+                        </TDLMESSAGE>
+                    </TDL>
                 </DESC>
             </BODY>
         </ENVELOPE>'''
         
         try:
             response = await self.send_xml(xml_request)
-            return self._parse_company_list(response)
+            companies = self._parse_company_list_with_period(response)
+            if companies:
+                return companies
+            # Fallback to simple parsing
+            return self._parse_company_list_simple(response)
         except Exception as e:
             logger.error(f"Failed to get open companies: {e}")
             return []
     
-    def _parse_company_list(self, xml_response: str) -> List[Dict[str, Any]]:
+    def _parse_company_list_with_period(self, xml_response: str) -> List[Dict[str, Any]]:
+        """Parse company list with period from XML response
+        
+        DEVELOPER NOTE:
+        ---------------
+        Tally's "List of Companies" collection returns company data with period info.
+        The period is shown in Tally's Select Company screen as "1-Apr-18 to 31-Dec-23".
+        
+        XML Response Structure:
+        <COMPANY NAME="CompanyName">
+            <BOOKSFROM>20180401</BOOKSFROM>  <!-- YYYYMMDD format -->
+            <STARTINGFROM>20180401</STARTINGFROM>
+            <COMPANYNUMBER>100001</COMPANYNUMBER>
+        </COMPANY>
+        
+        If BOOKSFROM is empty, we use STARTINGFROM as fallback.
+        Period end (books_to) is typically current financial year end.
+        """
+        companies = []
+        try:
+            # Remove BOM if present
+            if xml_response.startswith('\ufeff'):
+                xml_response = xml_response[1:]
+            
+            # Debug: Log first 2000 chars of response
+            logger.debug(f"Tally company list response: {xml_response[:2000]}")
+            
+            root = ET.fromstring(xml_response)
+            
+            # Find all COMPANY elements with their attributes
+            for company_elem in root.iter("COMPANY"):
+                name = company_elem.get("NAME", "")
+                if not name:
+                    continue
+                
+                # Get period info from child elements
+                books_from = ""
+                starting_from = ""
+                company_number = ""
+                
+                for child in company_elem:
+                    tag = child.tag.upper()
+                    text = child.text or ""
+                    if tag == "BOOKSFROM":
+                        books_from = text
+                    elif tag == "STARTINGFROM":
+                        starting_from = text
+                    elif tag == "COMPANYNUMBER":
+                        company_number = text
+                
+                # Use STARTINGFROM if BOOKSFROM is empty
+                period_from = books_from or starting_from
+                
+                companies.append({
+                    "name": name,
+                    "number": company_number,
+                    "books_from": period_from,
+                    "books_to": ""
+                })
+            
+            logger.info(f"Found {len(companies)} open companies in Tally")
+            return companies
+        except ET.ParseError as e:
+            logger.error(f"XML parse error: {e}")
+            return []
+    
+    def _parse_company_list_simple(self, xml_response: str) -> List[Dict[str, Any]]:
         """Parse company list from XML response
         
         Tally returns: <COMPANY NAME="CompanyName">...</COMPANY>

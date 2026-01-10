@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Trail - Tally Database Loader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/audit.css">
+</head>
+<body>
+    <nav class="navbar">
+        <a href="/" class="navbar-brand">
+            <i class="fas fa-database"></i>
+            <span>Tally Database Loader</span>
+        </a>
+        <div class="navbar-nav">
+            <a href="sync.html" class="nav-link"><i class="fas fa-sync"></i> Sync</a>
+            <a href="dashboard.html" class="nav-link"><i class="fas fa-chart-bar"></i> Dashboard</a>
+            <a href="audit.html" class="nav-link active"><i class="fas fa-history"></i> Audit</a>
+        </div>
+        <div class="navbar-status">
+            <div class="status-badge" id="tally-status">
+                <span class="dot"></span>
+                <span>Tally: Checking...</span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">Audit Trail</h1>
+            <p class="page-subtitle">Track all data changes during sync operations</p>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="grid grid-4">
+            <div class="stat-card">
+                <div class="stat-icon green"><i class="fas fa-plus"></i></div>
+                <div class="stat-content">
+                    <div class="stat-value" id="insert-count">0</div>
+                    <div class="stat-label">Inserts</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon blue"><i class="fas fa-edit"></i></div>
+                <div class="stat-content">
+                    <div class="stat-value" id="update-count">0</div>
+                    <div class="stat-label">Updates</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon red"><i class="fas fa-trash"></i></div>
+                <div class="stat-content">
+                    <div class="stat-value" id="delete-count">0</div>
+                    <div class="stat-label">Deletes</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon yellow"><i class="fas fa-undo"></i></div>
+                <div class="stat-content">
+                    <div class="stat-value" id="pending-restore">0</div>
+                    <div class="stat-label">Pending Restore</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Audit History -->
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title"><i class="fas fa-history"></i> Recent Changes</h2>
+                <div class="filter-group">
+                    <select id="action-filter" onchange="loadAuditHistory()">
+                        <option value="">All Actions</option>
+                        <option value="INSERT">Insert</option>
+                        <option value="UPDATE">Update</option>
+                        <option value="DELETE">Delete</option>
+                    </select>
+                    <button class="btn btn-outline btn-sm" onclick="loadAuditHistory()">
+                        <i class="fas fa-refresh"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="audit-list" id="audit-list">
+                <div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/common.js"></script>
+    <script src="/static/js/audit.js"></script>
+</body>
+</html>

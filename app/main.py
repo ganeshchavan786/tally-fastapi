@@ -82,16 +82,47 @@ app.include_router(audit_router)
 
 @app.get("/")
 async def root():
-    """Serve the dashboard HTML"""
+    """Serve the sync page as home"""
+    html_path = Path(__file__).parent.parent / "static" / "sync.html"
+    if html_path.exists():
+        return FileResponse(str(html_path), media_type="text/html")
+    return {"name": "Tally FastAPI Database Loader", "version": "2.4.0", "docs": "/docs"}
+
+
+@app.get("/sync.html")
+async def sync_page():
+    """Serve sync page"""
+    html_path = Path(__file__).parent.parent / "static" / "sync.html"
+    if html_path.exists():
+        return FileResponse(str(html_path), media_type="text/html")
+    return {"error": "Page not found"}
+
+
+@app.get("/dashboard.html")
+async def dashboard_page():
+    """Serve dashboard page"""
+    html_path = Path(__file__).parent.parent / "static" / "dashboard.html"
+    if html_path.exists():
+        return FileResponse(str(html_path), media_type="text/html")
+    return {"error": "Page not found"}
+
+
+@app.get("/audit.html")
+async def audit_page():
+    """Serve audit page"""
+    html_path = Path(__file__).parent.parent / "static" / "audit.html"
+    if html_path.exists():
+        return FileResponse(str(html_path), media_type="text/html")
+    return {"error": "Page not found"}
+
+
+@app.get("/old")
+async def old_dashboard():
+    """Serve old dashboard (index.html)"""
     html_path = Path(__file__).parent.parent / "static" / "index.html"
     if html_path.exists():
         return FileResponse(str(html_path), media_type="text/html")
-    return {
-        "name": "Tally FastAPI Database Loader",
-        "version": "1.0.0",
-        "status": "running",
-        "docs": "/docs"
-    }
+    return {"error": "Page not found"}
 
 
 @app.get("/api/info")
