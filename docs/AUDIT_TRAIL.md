@@ -15,8 +15,10 @@ Audit Trail हे एक powerful feature आहे जे Tally FastAPI Databa
 
 ### 2. **Deleted Records Recovery**
 - Delete झालेल्या records चा **full data** store होतो
-- कधीही deleted record **restore** करता येतो
+- **Manual restore** - API call करून restore करता येतो (auto restore नाही)
+- `POST /api/audit/restore/{id}` endpoint वापरून restore
 - Financial data साठी compliance maintain होतो
+- Restore करेपर्यंत data safe राहतो `deleted_records` table मध्ये
 
 ### 3. **Sync Session Grouping**
 - प्रत्येक sync operation ला unique session ID
