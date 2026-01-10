@@ -1,4 +1,0 @@
-[2026-01-09 11:23:00] [INFO] Log file: sync_log_20260109_112300.txt
-[2026-01-09 11:23:03] [SUCCESS] API Server is running
-[2026-01-09 11:23:06] [SUCCESS] Tally Connected: localhost:9000
-[2026-01-09 11:23:10] [WARNING] No companies found in Tally

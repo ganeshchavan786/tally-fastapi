@@ -462,3 +462,80 @@ create table trn_attendance
  time_value decimal(17,2) not null default 0,
  type_value decimal(17,2) not null default 0
 );
+
+-- =====================================================
+-- AUDIT TRAIL TABLES
+-- =====================================================
+
+-- Main audit log table - tracks all INSERT, UPDATE, DELETE actions
+create table audit_log
+(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- Sync session grouping
+    sync_session_id varchar(64),
+    sync_type varchar(32),                  -- full, incremental
+    
+    -- Record identification
+    table_name varchar(128) not null,       -- mst_ledger, trn_voucher, etc.
+    record_guid varchar(64),                -- GUID of the record
+    record_name nvarchar(1024),             -- Name for easy identification
+    
+    -- Action details
+    action varchar(32) not null,            -- INSERT, UPDATE, DELETE
+    
+    -- Data snapshots (JSON)
+    old_data text,                          -- Full record before change (UPDATE/DELETE)
+    new_data text,                          -- Full record after change (INSERT/UPDATE)
+    changed_fields text,                    -- JSON array of changed field names
+    
+    -- Context
+    company nvarchar(256) not null,
+    tally_alter_id integer,                 -- Tally's AlterID reference
+    
+    -- Timestamps
+    created_at timestamp default current_timestamp,
+    
+    -- Status
+    status varchar(32) default 'SUCCESS',   -- SUCCESS, FAILED
+    message text                            -- Additional info/error message
+);
+
+-- Indexes for fast queries
+create index idx_audit_session on audit_log(sync_session_id);
+create index idx_audit_table on audit_log(table_name);
+create index idx_audit_guid on audit_log(record_guid);
+create index idx_audit_action on audit_log(action);
+create index idx_audit_company on audit_log(company);
+create index idx_audit_date on audit_log(created_at);
+
+-- Deleted records table - stores full data for recovery
+create table deleted_records
+(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    
+    -- Record identification
+    table_name varchar(128) not null,
+    record_guid varchar(64) not null,
+    record_name nvarchar(1024),
+    
+    -- Full record data (JSON)
+    record_data text not null,
+    
+    -- Context
+    company nvarchar(256) not null,
+    sync_session_id varchar(64),
+    
+    -- Timestamps
+    deleted_at timestamp default current_timestamp,
+    
+    -- Recovery tracking
+    is_restored integer default 0,
+    restored_at timestamp
+);
+
+-- Indexes for deleted records
+create index idx_deleted_table on deleted_records(table_name);
+create index idx_deleted_guid on deleted_records(record_guid);
+create index idx_deleted_company on deleted_records(company);
+create index idx_deleted_date on deleted_records(deleted_at);

@@ -187,6 +187,9 @@ class DatabaseService:
             
             # Auto-add _company column to all tables for multi-company support
             await self._ensure_company_column_exists()
+            
+            # Ensure audit tables exist
+            await self.ensure_audit_tables()
         except Exception as e:
             logger.error(f"Failed to create tables: {e}")
             raise
@@ -228,6 +231,65 @@ class DatabaseService:
             await conn.commit()
         except Exception as e:
             logger.warning(f"Could not ensure columns for {table_name}: {e}")
+    
+    async def ensure_audit_tables(self) -> None:
+        """Create audit trail tables if they don't exist"""
+        conn = await self._get_connection()
+        
+        try:
+            # Create audit_log table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    sync_session_id TEXT,
+                    sync_type TEXT,
+                    table_name TEXT NOT NULL,
+                    record_guid TEXT,
+                    record_name TEXT,
+                    action TEXT NOT NULL,
+                    old_data TEXT,
+                    new_data TEXT,
+                    changed_fields TEXT,
+                    company TEXT NOT NULL,
+                    tally_alter_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'SUCCESS',
+                    message TEXT
+                )
+            """)
+            
+            # Create deleted_records table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS deleted_records (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    table_name TEXT NOT NULL,
+                    record_guid TEXT NOT NULL,
+                    record_name TEXT,
+                    record_data TEXT NOT NULL,
+                    company TEXT NOT NULL,
+                    sync_session_id TEXT,
+                    deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_restored INTEGER DEFAULT 0,
+                    restored_at TIMESTAMP
+                )
+            """)
+            
+            # Create indexes
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_log(sync_session_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_table ON audit_log(table_name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_guid ON audit_log(record_guid)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_company ON audit_log(company)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_date ON audit_log(created_at)")
+            
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_deleted_table ON deleted_records(table_name)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_deleted_guid ON deleted_records(record_guid)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_deleted_company ON deleted_records(company)")
+            
+            await conn.commit()
+            logger.info("Audit tables ensured")
+        except Exception as e:
+            logger.error(f"Failed to create audit tables: {e}")
     
     def _load_schema_from_file(self, incremental: bool = False) -> str:
         """Load schema from database-structure.sql file"""

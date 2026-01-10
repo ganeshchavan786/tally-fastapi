@@ -18,6 +18,7 @@ from .controllers.config_controller import router as config_router
 from .controllers.health_controller import router as health_router
 from .controllers.log_controller import router as log_router
 from .controllers.debug_controller import router as debug_router
+from .controllers.audit_controller import router as audit_router
 
 
 # Setup logging
@@ -76,6 +77,7 @@ app.include_router(config_router, prefix="/api/config", tags=["Config"])
 app.include_router(health_router, prefix="/api/health", tags=["Health"])
 app.include_router(log_router, prefix="/api/logs", tags=["Logs"])
 app.include_router(debug_router, prefix="/api/debug", tags=["Debug"])
+app.include_router(audit_router)
 
 
 @app.get("/")

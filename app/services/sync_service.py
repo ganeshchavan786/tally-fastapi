@@ -65,6 +65,7 @@ from ..utils.helpers import parse_tally_date, parse_tally_amount, parse_tally_bo
 from .tally_service import tally_service
 from .database_service import database_service
 from .xml_builder import xml_builder
+from .audit_service import audit_service
 
 # Sync state file for crash recovery
 SYNC_STATE_FILE = Path("sync_state.json")
@@ -233,6 +234,9 @@ class SyncService:
         logger.info(f"Starting incremental sync for company: {self.current_company or 'Default'}")
         logger.info(f"Config company set to: {config.tally.company}")
         
+        # Start audit session
+        audit_service.start_session("incremental", self.current_company)
+        
         try:
             # Reload config for incremental mode
             xml_builder.reload_config(incremental=True)
@@ -325,6 +329,8 @@ class SyncService:
             logger.error(f"Incremental sync failed: {e}")
             return self.get_status()
         finally:
+            # End audit session
+            audit_service.end_session()
             await database_service.disconnect()
     
     async def _get_last_alterid(self) -> int:
@@ -441,11 +447,29 @@ class SyncService:
                     AND t._company = ?
                 """, (self.current_company,))
                 
-                # Step 5: Delete from main table
+                # Step 5: Delete from main table (with audit logging)
                 delete_result = await database_service.fetch_one("SELECT COUNT(*) as cnt FROM _delete")
                 delete_count = delete_result.get("cnt", 0) if delete_result else 0
                 
                 if delete_count > 0:
+                    # Fetch records to be deleted for audit trail
+                    deleted_records = await database_service.fetch_all(f"""
+                        SELECT * FROM {table_name} 
+                        WHERE guid IN (SELECT guid FROM _delete)
+                        AND _company = ?
+                    """, (self.current_company,))
+                    
+                    # Log each delete to audit trail
+                    for record in deleted_records:
+                        await audit_service.log_delete(
+                            table_name=table_name,
+                            record_guid=record.get("guid", ""),
+                            record_name=record.get("name", record.get("guid", "")),
+                            old_data=dict(record),
+                            company=self.current_company
+                        )
+                    
+                    # Now delete from main table
                     await database_service.execute(f"""
                         DELETE FROM {table_name} 
                         WHERE guid IN (SELECT guid FROM _delete)
@@ -498,6 +522,39 @@ class SyncService:
                     # Add company name to rows
                     for row in rows:
                         row["_company"] = self.current_company
+                    
+                    # Audit trail: Log INSERT/UPDATE for each row
+                    for row in rows:
+                        guid = row.get("guid", "")
+                        record_name = row.get("name", guid)
+                        
+                        # Check if record exists (UPDATE) or new (INSERT)
+                        existing = await database_service.fetch_one(
+                            f"SELECT * FROM {table_name} WHERE guid = ? AND _company = ?",
+                            (guid, self.current_company)
+                        )
+                        
+                        if existing:
+                            # UPDATE - log with old and new data
+                            await audit_service.log_update(
+                                table_name=table_name,
+                                record_guid=guid,
+                                record_name=record_name,
+                                old_data=dict(existing),
+                                new_data=row,
+                                company=self.current_company,
+                                tally_alter_id=row.get("alterid")
+                            )
+                        else:
+                            # INSERT - log new record
+                            await audit_service.log_insert(
+                                table_name=table_name,
+                                record_guid=guid,
+                                record_name=record_name,
+                                new_data=row,
+                                company=self.current_company,
+                                tally_alter_id=row.get("alterid")
+                            )
                     
                     # Use upsert (INSERT OR REPLACE)
                     count = await self._upsert_rows(table_name, rows)
